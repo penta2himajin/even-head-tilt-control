@@ -7,26 +7,39 @@ import {
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import {
+  CALIB_STORAGE_KEY,
+  CONTROL_IDS,
   EXEC_COOLDOWN_MS,
-  HOLD_MS,
-  HOLD_THRESHOLD,
-  MOTION_WINDOW_MS,
   STORAGE_KEY,
   type ControlId,
   type GestureType,
 } from './constants.ts'
+import {
+  debugSend,
+  debugSendImu,
+  startDebugTelemetry,
+  summarizeEvenHubEvent,
+} from './debug-telemetry.ts'
 import { READY_MARKER, controlIdFromIndex } from './format.ts'
 import {
+  PoseTracker,
   classifyBindingWindow,
-  detectHoldExecution,
-  detectMotionExecution,
   findControlForGesture,
   parsePersisted,
   serializeBindings,
 } from './gesture.ts'
-import { buildRebuildPage, buildStartupPage } from './hub-page.ts'
+import {
+  buildListUpgrade,
+  buildRebuildPage,
+  buildStartupPage,
+  buildTitleUpgrade,
+} from './hub-page.ts'
 import { createPhoneUi, formatBindingsSummary } from './phone-ui.ts'
 import { mockImuEnabled, startMockImu, type MockImuHandle } from './mock-imu.ts'
+import {
+  parseGravityCalib,
+  serializeGravityCalib,
+} from './pose.ts'
 import type { AppSnapshot, ControlLogEntry, ImuSample } from './types.ts'
 import { emptyBindings } from './types.ts'
 
@@ -60,7 +73,40 @@ function listFocusIndex(event: EvenHubEvent): number | undefined {
   const listEvt = e.listEvent as
     | { currentSelectItemIndex?: number; list_select_item_id?: number }
     | undefined
-  return listEvt?.currentSelectItemIndex ?? listEvt?.list_select_item_id
+  const fromList = listEvt?.currentSelectItemIndex ?? listEvt?.list_select_item_id
+  if (typeof fromList === 'number' && Number.isFinite(fromList)) return fromList
+
+  const json = e.jsonData as Record<string, unknown> | undefined
+  const raw =
+    json?.currentSelectItemIndex ??
+    json?.CurrentSelect_ItemIndex ??
+    json?.currentselectitemindex
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))) {
+    return Number(raw)
+  }
+  return undefined
+}
+
+function clampFocus(index: number): number {
+  return Math.max(0, Math.min(CONTROL_IDS.length - 1, index))
+}
+
+function eventChannel(event: EvenHubEvent): 'glasses' | 'phone' {
+  const src = event.sysEvent?.eventSource
+  if (src === 1 || src === 2 || src === 3) return 'glasses'
+  if (event.listEvent || event.textEvent) return 'glasses'
+  if (event.sysEvent?.eventType === OsEventTypeList.IMU_DATA_REPORT) return 'glasses'
+  return 'phone'
+}
+
+function formatPoseStatus(tracker: PoseTracker): string {
+  const s = tracker.status()
+  if (s.flatCalibActive) return 'pose: flat calib… (keep glasses still on desk)'
+  const g = s.hasG0 ? 'g0✓' : 'g0✗'
+  const n = s.hasNeutral ? 'n̂✓' : 'n̂✗'
+  const held = s.heldGesture ? ` held=${s.heldGesture}` : ''
+  return `pose: ${s.phase}/${s.region} ${g} ${n}${held}`
 }
 
 async function loadBindings(bridge: EvenAppBridge) {
@@ -71,11 +117,29 @@ async function loadBindings(bridge: EvenAppBridge) {
 async function saveBindings(bridge: EvenAppBridge, snapshot: AppSnapshot) {
   await bridge.setLocalStorage(STORAGE_KEY, serializeBindings(snapshot.bindings))
   console.info('[head-tilt] bindings:', formatBindingsSummary(snapshot))
+  debugSend('app', 'bindings_saved', snapshot.bindings)
+}
+
+async function loadCalib(bridge: EvenAppBridge) {
+  const raw = await bridge.getLocalStorage(CALIB_STORAGE_KEY)
+  return parseGravityCalib(raw)
+}
+
+async function saveCalib(bridge: EvenAppBridge, tracker: PoseTracker) {
+  const calib = tracker.getGravityCalib()
+  if (!calib) return
+  await bridge.setLocalStorage(CALIB_STORAGE_KEY, serializeGravityCalib(calib))
+  debugSend('app', 'calib_saved', calib)
 }
 
 async function main() {
+  startDebugTelemetry()
+  debugSend('app', 'boot', {
+    href: location.href,
+    hostPresentHint: evenHubHostPresent(),
+  })
+
   const root = document.getElementById('app')!
-  const phone = createPhoneUi(root)
 
   let snapshot: AppSnapshot = {
     bindings: emptyBindings(),
@@ -83,21 +147,70 @@ async function main() {
     mode: 'idle',
     bindingControl: null,
     logs: [],
+    poseStatus: 'pose: —',
   }
 
   const bindingSamples: ImuSample[] = []
-  const execMotionBuffer: ImuSample[] = []
-  let execBaseline: ImuSample | null = null
-  let holdSince: number | null = null
   let lastControlAt = 0
+  let lastScrollAt = 0
   let imuOpen = false
   let mockHandle: MockImuHandle | null = null
+  let hubRef: EvenAppBridge | null = null
+  const tracker = new PoseTracker()
 
-  const paint = () => phone.refresh(snapshot)
+  const paint = () => {
+    snapshot.poseStatus = formatPoseStatus(tracker)
+    phone.refresh(snapshot)
+  }
 
   const rebuildGlasses = async (hub: EvenAppBridge) => {
     await hub.rebuildPageContainer(buildRebuildPage(snapshot))
+    debugSend('glasses', 'rebuild_page', {
+      mode: snapshot.mode,
+      focusedIndex: snapshot.focusedIndex,
+      bindingControl: snapshot.bindingControl,
+    })
   }
+
+  const refreshGlassesText = async (hub: EvenAppBridge) => {
+    try {
+      await hub.textContainerUpgrade(buildTitleUpgrade(snapshot))
+      await hub.textContainerUpgrade(buildListUpgrade(snapshot))
+      debugSend('glasses', 'text_upgrade', {
+        focusedIndex: snapshot.focusedIndex,
+        mode: snapshot.mode,
+        bindingControl: snapshot.bindingControl,
+      })
+    } catch (err) {
+      debugSend('glasses', 'text_upgrade_fallback', { err: String(err) })
+      await rebuildGlasses(hub)
+    }
+  }
+
+  const setFocusedIndex = async (
+    hub: EvenAppBridge | null,
+    index: number,
+    via: string,
+  ) => {
+    const next = clampFocus(index)
+    if (next === snapshot.focusedIndex) return
+    snapshot.focusedIndex = next
+    debugSend('glasses', 'focus', { index: next, via })
+    paint()
+    if (hub) await refreshGlassesText(hub)
+  }
+
+  const phone = createPhoneUi(root, {
+    onSelectIndex: (index) => {
+      void setFocusedIndex(hubRef, index, 'phone')
+    },
+    onStartFlatCalib: () => {
+      tracker.startFlatCalib()
+      debugSend('app', 'flat_calib_start', {})
+      console.info('[head-tilt] flat calib start — place glasses on a flat surface')
+      paint()
+    },
+  })
 
   const emitControl = async (
     hub: EvenAppBridge,
@@ -109,75 +222,77 @@ async function main() {
     snapshot.logs.push(entry)
     const suffix = via === 'gesture' ? 'via' : 'temple'
     console.info(`[control] ${control} ${suffix} ${gesture}`)
+    debugSend('app', 'control', { control, gesture, via })
     paint()
     await rebuildGlasses(hub)
   }
 
   const onImuSample = async (hub: EvenAppBridge, sample: ImuSample) => {
+    debugSendImu(sample)
+
+    // Flat calib may run anytime (including before binding).
+    if (tracker.isFlatCalibActive()) {
+      tracker.push(sample)
+      if (!tracker.isFlatCalibActive()) {
+        await saveCalib(hub, tracker)
+        console.info('[head-tilt] flat calib done')
+        debugSend('app', 'flat_calib_done', tracker.getGravityCalib())
+      }
+      paint()
+      return
+    }
+
     if (snapshot.mode === 'binding') {
       bindingSamples.push(sample)
       return
     }
 
-    execMotionBuffer.push(sample)
-    const cutoff = sample.t - MOTION_WINDOW_MS
-    while (execMotionBuffer.length > 0 && execMotionBuffer[0].t < cutoff) {
-      execMotionBuffer.shift()
+    const transition = tracker.push(sample)
+    if (!transition) {
+      if (sample.t % 500 < 120) paint()
+      return
     }
 
-    if (!execBaseline) execBaseline = sample
+    debugSend('glasses', 'pose_transition', transition)
 
+    if (transition.kind === 'return') {
+      paint()
+      return
+    }
+
+    const gesture: GestureType = transition.gesture
     const now = sample.t
-    if (now - lastControlAt < EXEC_COOLDOWN_MS) return
-
-    const motion = detectMotionExecution(execMotionBuffer)
-    if (motion) {
-      const control = findControlForGesture(snapshot.bindings, motion)
-      if (control) {
-        lastControlAt = now
-        execMotionBuffer.length = 0
-        execBaseline = null
-        holdSince = null
-        await emitControl(hub, control, motion, 'gesture')
-        return
-      }
+    if (now - lastControlAt < EXEC_COOLDOWN_MS) {
+      paint()
+      return
     }
-
-    const hold = detectHoldExecution(
-      sample,
-      execBaseline,
-      holdSince,
-      now,
-      HOLD_MS,
-      HOLD_THRESHOLD,
-    )
-    holdSince = hold.heldSince
-    if (hold.gesture) {
-      const control = findControlForGesture(snapshot.bindings, hold.gesture)
-      if (control) {
-        lastControlAt = now
-        execBaseline = null
-        holdSince = null
-        await emitControl(hub, control, hold.gesture, 'gesture')
-      }
+    const control = findControlForGesture(snapshot.bindings, gesture)
+    if (control) {
+      lastControlAt = now
+      await emitControl(hub, control, gesture, 'gesture')
+    } else {
+      debugSend('glasses', 'pose_unbound', { gesture, transition: transition.kind })
+      paint()
     }
   }
 
   const ensureImu = async (hub: EvenAppBridge) => {
-    if (imuOpen) return
-    await hub.imuControl(true, ImuReportPace.P500)
+    await hub.imuControl(true, ImuReportPace.P100)
     imuOpen = true
+    debugSend('glasses', 'imu_control', { open: true, pace: 'P100' })
   }
 
   const stopImu = async (hub: EvenAppBridge) => {
     if (!imuOpen) return
     await hub.imuControl(false)
     imuOpen = false
+    debugSend('glasses', 'imu_control', { open: false })
   }
 
   paint()
 
   const hasHost = await waitForHost()
+  debugSend('app', 'host_wait', { hasHost })
   if (!hasHost) {
     console.info(READY_MARKER)
     console.info('[head-tilt] bindings:', formatBindingsSummary(snapshot))
@@ -188,12 +303,38 @@ async function main() {
   }
 
   const hub = await waitForEvenAppBridge()
+  hubRef = hub
+  debugSend('phone', 'bridge_ready', {})
+
+  try {
+    const info = await hub.getDeviceInfo()
+    debugSend('glasses', 'device_info', info)
+  } catch (err) {
+    debugSend('glasses', 'device_info_error', { err: String(err) })
+  }
+
+  try {
+    const user = await hub.getUserInfo()
+    debugSend('phone', 'user_info', user)
+  } catch (err) {
+    debugSend('phone', 'user_info_error', { err: String(err) })
+  }
+
   snapshot.bindings = await loadBindings(hub)
+  const calib = await loadCalib(hub)
+  if (calib) {
+    tracker.loadCalib(calib)
+    debugSend('app', 'calib_loaded', calib)
+  }
+  debugSend('app', 'bindings_loaded', snapshot.bindings)
   paint()
 
   await hub.createStartUpPageContainer(buildStartupPage(snapshot))
   console.info(READY_MARKER)
   console.info('[head-tilt] bindings:', formatBindingsSummary(snapshot))
+  debugSend('glasses', 'startup_page', {
+    bindings: snapshot.bindings,
+  })
 
   await ensureImu(hub)
 
@@ -201,11 +342,22 @@ async function main() {
     mockHandle = startMockImu((sample) => {
       void onImuSample(hub, sample)
     })
+    debugSend('app', 'mock_imu', { enabled: true })
+  }
+
+  try {
+    hub.onDeviceStatusChanged((status) => {
+      debugSend('glasses', 'device_status', status)
+    })
+  } catch (err) {
+    debugSend('glasses', 'device_status_error', { err: String(err) })
   }
 
   hub.onEvenHubEvent((event) => {
     void (async () => {
+      const channel = eventChannel(event)
       const sysType = event.sysEvent?.eventType
+      const type = rawEventType(event)
 
       if (sysType === OsEventTypeList.IMU_DATA_REPORT && event.sysEvent?.imuData) {
         const { x = 0, y = 0, z = 0 } = event.sysEvent.imuData
@@ -213,19 +365,38 @@ async function main() {
         return
       }
 
-      if (sysType === OsEventTypeList.LONG_PRESS_EVENT) {
+      debugSend(channel, 'even_hub_event', summarizeEvenHubEvent(event))
+
+      if (
+        type === OsEventTypeList.LONG_PRESS_EVENT ||
+        sysType === OsEventTypeList.LONG_PRESS_EVENT
+      ) {
         await ensureImu(hub)
         snapshot.mode = 'binding'
         snapshot.bindingControl = controlIdFromIndex(snapshot.focusedIndex)
         bindingSamples.length = 0
+        tracker.softReset()
+        debugSend('glasses', 'binding_start', {
+          control: snapshot.bindingControl,
+          focusedIndex: snapshot.focusedIndex,
+        })
         paint()
-        await rebuildGlasses(hub)
+        await refreshGlassesText(hub)
         return
       }
 
-      if (sysType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) {
+      if (
+        type === OsEventTypeList.LONG_PRESS_RELEASE_EVENT ||
+        sysType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT
+      ) {
         const control = snapshot.bindingControl
         const gesture = classifyBindingWindow(bindingSamples)
+        debugSend('glasses', 'binding_end', {
+          control,
+          gesture,
+          samples: bindingSamples.length,
+          focusedIndex: snapshot.focusedIndex,
+        })
         if (control && gesture) {
           snapshot.bindings[control] = gesture
           await saveBindings(hub, snapshot)
@@ -233,32 +404,45 @@ async function main() {
         snapshot.mode = 'idle'
         snapshot.bindingControl = null
         bindingSamples.length = 0
-        execBaseline = null
-        holdSince = null
+        tracker.softReset()
         paint()
-        await rebuildGlasses(hub)
+        await refreshGlassesText(hub)
         return
       }
 
       const focus = listFocusIndex(event)
       if (focus !== undefined) {
-        snapshot.focusedIndex = focus
-        paint()
+        await setFocusedIndex(hub, focus, 'listEvent')
         return
       }
 
-      const type = rawEventType(event)
+      if (
+        type === OsEventTypeList.SCROLL_TOP_EVENT ||
+        type === OsEventTypeList.SCROLL_BOTTOM_EVENT
+      ) {
+        if (snapshot.mode === 'binding') return
+        const now = Date.now()
+        if (now - lastScrollAt < 280) return
+        lastScrollAt = now
+        const delta = type === OsEventTypeList.SCROLL_TOP_EVENT ? -1 : 1
+        await setFocusedIndex(hub, snapshot.focusedIndex + delta, 'scroll')
+        return
+      }
+
       if (type === OsEventTypeList.CLICK_EVENT || type === undefined || type === null) {
         const control = controlIdFromIndex(snapshot.focusedIndex)
         const bound = snapshot.bindings[control]
         if (bound) {
           await emitControl(hub, control, bound, 'temple')
+        } else {
+          debugSend('glasses', 'click_unbound', { control })
         }
       }
     })()
   })
 
   window.addEventListener('beforeunload', () => {
+    debugSend('app', 'beforeunload', {})
     mockHandle?.stop()
     void stopImu(hub)
   })
