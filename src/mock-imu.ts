@@ -44,11 +44,12 @@ export function mockImuEnabled(): boolean {
 
 /** Play a short nod-like series through the listener (tests / manual). */
 export function playNodSequence(inject: (x: number, y: number, z: number) => void): void {
+  // g-scale pitch on x (matches real G2 accel).
   const steps: Array<[number, number, number]> = [
-    [0, 0, 0],
-    [0, 0, 12],
-    [0, 0, -10],
-    [0, 0, 0],
+    [0, 0, 1],
+    [-0.25, 0, 0.97],
+    [-0.4, 0.02, 0.9],
+    [-0.05, 0, 1],
   ]
   for (const [x, y, z] of steps) inject(x, y, z)
 }

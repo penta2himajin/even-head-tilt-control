@@ -1,1 +1,38 @@
-PLACEHOLDER
+{
+  "name": "even-head-tilt-control",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "qr": "evenhub qr --url http://127.0.0.1:5173",
+    "qr:tunnel": "bash -c 'URL=$(grep -Eo \"https://[a-zA-Z0-9-]+\\\\.trycloudflare\\\\.com\" /tmp/cf-tunnel.log | head -1); evenhub qr --url \"$URL\"'",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "verify:l0": "npm run typecheck && npm test",
+    "verify:l2a": "even-deskless verify-l2a",
+    "verify:deskless": "npm run verify:l0 && npm run verify:l2a",
+    "sim": "evenhub-simulator http://127.0.0.1:5173 --automation-port 9898",
+    "pack": "npm run build && evenhub pack app.json dist -o even-head-tilt-control.ehpk"
+  },
+  "evenDeskless": {
+    "readyMarker": "[head-tilt] ready"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.14"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.1.14",
+    "@evenrealities/evenhub-simulator": "^0.9.3",
+    "@penta2himajin/even-deskless": "^0.1.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4",
+    "ws": "^8.21.3"
+  }
+}

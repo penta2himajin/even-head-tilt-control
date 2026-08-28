@@ -17,10 +17,11 @@ body {
   font-size: 1.25rem;
 }
 
-.phone-sub {
-  margin: 0 0 16px;
-  color: #9aa0b4;
-  font-size: 0.875rem;
+.phone-debug {
+  margin: 0 0 12px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: #7ddea2;
 }
 
 .phone-panel {
@@ -45,6 +46,57 @@ body {
   border: 1px solid #2a2a36;
   border-radius: 8px;
   padding: 12px;
+}
+
+.phone-calib-btn {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #3a4a40;
+  background: #1a2420;
+  color: #7ddea2;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.phone-calib-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.phone-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #9aa0b4;
+}
+
+.phone-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.phone-bind-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: pre;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  background: #14141c;
+  border: 1px solid #2a2a36;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #e8e8f0;
+  cursor: pointer;
+}
+
+.phone-bind-row.is-focused {
+  border-color: #7ddea2;
+  background: #121a16;
 }
 
 .phone-mode {
