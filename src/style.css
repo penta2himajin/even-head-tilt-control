@@ -1,0 +1,58 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: #0b0b0f;
+  color: #e8e8f0;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+#app {
+  padding: 16px;
+  max-width: 640px;
+}
+
+.phone-header h1 {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+}
+
+.phone-sub {
+  margin: 0 0 16px;
+  color: #9aa0b4;
+  font-size: 0.875rem;
+}
+
+.phone-panel {
+  margin-bottom: 16px;
+}
+
+.phone-panel h2 {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa0b4;
+}
+
+.phone-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  background: #14141c;
+  border: 1px solid #2a2a36;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.phone-mode {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.phone-log {
+  max-height: 240px;
+  overflow: auto;
+}
