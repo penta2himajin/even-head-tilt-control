@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   classifyBindingWindow,
-  detectMotionExecution,
   findControlForGesture,
   parsePersisted,
   serializeBindings,
+  PoseTracker,
 } from './gesture.ts'
 import type { ImuSample } from './types.ts'
 
@@ -24,40 +24,83 @@ function seq(
 describe('classifyBindingWindow', () => {
   it('detects face-R hold from yaw axis', () => {
     const samples = seq([
-      [0, 0, 0],
-      [0, 10, 0],
-      [0, 18, 0],
+      [0, 0, 1],
+      [0, 0.2, 1],
+      [0, 0.35, 0.92],
+      [0, 0.4, 0.9],
+      [0, 0.4, 0.9],
+      [0, 0.4, 0.9],
     ])
     expect(classifyBindingWindow(samples)).toBe('face-R')
   })
 
-  it('detects nod from pitch reversal', () => {
+  it('detects nod from pitch return to neutral', () => {
     const samples = seq([
-      [0, 0, 0],
-      [0, 0, 14],
-      [0, 0, -12],
+      [0, 0, 1],
+      [-0.25, 0, 0.97],
+      [-0.4, 0.02, 0.9],
+      [-0.15, 0, 0.98],
+      [-0.02, 0, 1],
     ])
     expect(classifyBindingWindow(samples)).toBe('nod')
   })
 
-  it('detects shake from yaw reversal', () => {
+  it('detects bidirectional shake', () => {
     const samples = seq([
-      [0, 0, 0],
-      [0, 14, 0],
-      [0, -12, 0],
+      [0, 0, 1],
+      [0, 0.1, 1],
+      [0, -0.1, 1],
+      [0, 0.09, 1],
+      [0, -0.02, 1],
+    ])
+    expect(classifyBindingWindow(samples)).toBe('shake')
+  })
+
+  it('classifies real G2 nod window as nod', () => {
+    const samples = seq([
+      [-0.083, -0.061, 1.0],
+      [-0.085, -0.06, 1.001],
+      [-0.211, -0.002, 0.98],
+      [-0.456, 0.038, 0.888],
+      [-0.444, 0.036, 0.903],
+      [-0.224, -0.031, 0.974],
+      [-0.086, -0.06, 0.999],
+      [-0.072, -0.052, 1.001],
+    ])
+    expect(classifyBindingWindow(samples)).toBe('nod')
+  })
+
+  it('classifies real G2 shake window as shake', () => {
+    const samples = seq([
+      [-0.08, -0.043, 0.994],
+      [-0.099, 0.006, 0.983],
+      [-0.033, 0.05, 1.009],
+      [-0.082, 0.011, 0.985],
+      [-0.119, -0.113, 0.991],
+      [-0.062, -0.107, 1.0],
+      [-0.151, -0.054, 0.996],
     ])
     expect(classifyBindingWindow(samples)).toBe('shake')
   })
 })
 
-describe('detectMotionExecution', () => {
-  it('fires nod on pitch swing in rolling window', () => {
-    const samples = seq([
-      [0, 0, 0],
-      [0, 0, 12],
-      [0, 0, -10],
-    ])
-    expect(detectMotionExecution(samples)).toBe('nod')
+describe('PoseTracker enter/return', () => {
+  it('emits face-R on enter and does not emit shake on return', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    const push = (x: number, y: number, z: number, t: number) => {
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) events.push(ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return')
+    }
+    // settle neutral
+    for (let i = 0; i < 5; i++) push(0, 0, 1, i * 100)
+    // move to face-R and hold
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94, 500 + i * 100)
+    // return to neutral
+    for (let i = 0; i < 8; i++) push(0, 0.02, 1, 1400 + i * 100)
+    expect(events).toContain('face-R')
+    expect(events).toContain('return')
+    expect(events).not.toContain('shake')
   })
 })
 
