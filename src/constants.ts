@@ -38,11 +38,6 @@ export const MOTION_WINDOW_MS = 1500
 
 /** Settle time inside a pose band before enter/return commits. */
 export const SETTLE_MS = 280
-/**
- * Longer dwell required to *enter* a hold. Must exceed a typical nod/shake
- * half-cycle so pitch/yaw oscillate is not stolen by tilt-F / turn-*.
- */
-export const HOLD_ENTER_SETTLE_MS = 550
 /** After return-to-neutral, ignore oscillate briefly (offsets already cleared). */
 export const RETURN_SUPPRESS_MS = 100
 

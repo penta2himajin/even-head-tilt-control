@@ -2,7 +2,6 @@ import {
   CONTROL_IDS,
   FLAT_CALIB_MS,
   HOLD_ENTER,
-  HOLD_ENTER_SETTLE_MS,
   NEUTRAL_BAND,
   NEUTRAL_EMA_ALPHA,
   NOD_PEAK,
@@ -202,9 +201,11 @@ export class PoseTracker {
 
     const settled =
       this.candidateSince !== null && now - this.candidateSince >= SETTLE_MS
-    const holdEnterSettled =
-      this.candidateSince !== null &&
-      now - this.candidateSince >= HOLD_ENTER_SETTLE_MS
+    // Hold enter/switch needs stillness so a moving nod/shake cannot "settle"
+    // into tilt-F / turn-* and steal the oscillate.
+    const stillSettled =
+      this.stillSince !== null && now - this.stillSince >= SETTLE_MS
+    const holdEnterReady = settled && stillSettled
 
     // --- return: held → neutral ---
     if (this.phase === 'held' && region === 'neutral' && settled) {
@@ -224,7 +225,7 @@ export class PoseTracker {
       region !== 'neutral' &&
       region !== 'motion' &&
       region !== this.heldGesture &&
-      holdEnterSettled
+      holdEnterReady
     ) {
       const gesture = region as HoldGesture
       this.heldGesture = gesture
@@ -232,12 +233,12 @@ export class PoseTracker {
       return { kind: 'enter', gesture }
     }
 
-    // --- enter: neutral → hold (longer settle than return / oscillate) ---
+    // --- enter: neutral → hold (region settle + stillness) ---
     if (
       this.phase === 'neutral' &&
       region !== 'neutral' &&
       region !== 'motion' &&
-      holdEnterSettled
+      holdEnterReady
     ) {
       const gesture = region as HoldGesture
       this.phase = 'held'
