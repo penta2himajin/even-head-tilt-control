@@ -1,7 +1,6 @@
 import {
   CONTROL_IDS,
   GESTURE_TYPES,
-  type ControlId,
   type GestureType,
 } from './constants.ts'
 import type { BindingsMap, ImuSample, PersistedBindings } from './types.ts'

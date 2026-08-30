@@ -70,7 +70,6 @@ export class PoseTracker {
   private stillSince: number | null = null
   private suppressOscillateUntil = 0
   private offsets: OffsetSample[] = []
-  private lastEmitAt = 0
 
   private flatCollecting = false
   private flatStartedAt = 0
@@ -112,7 +111,7 @@ export class PoseTracker {
     return this.flatCollecting
   }
 
-  status(now = Date.now()): PoseTrackerStatus {
+  status(_now = Date.now()): PoseTrackerStatus {
     const region = this.neutral && this.lastSample
       ? classifyRegion(sub(this.lastSample, this.neutral), NEUTRAL_BAND, HOLD_ENTER)
       : 'neutral'
@@ -210,6 +209,23 @@ export class PoseTracker {
       this.suppressOscillateUntil = now + RETURN_SUPPRESS_MS
       this.offsets = []
       return { kind: 'return' }
+    }
+
+    // --- switch: held → different hold (e.g. tilt-L → tilt-R) without requiring
+    // a settled neutral dwell in between. Fast opposite tilts used to get stuck
+    // in the first held pose when transit through neutral was shorter than SETTLE_MS.
+    if (
+      this.phase === 'held' &&
+      this.heldGesture !== null &&
+      region !== 'neutral' &&
+      region !== 'motion' &&
+      region !== this.heldGesture &&
+      settled
+    ) {
+      const gesture = region as HoldGesture
+      this.heldGesture = gesture
+      this.offsets = []
+      return { kind: 'enter', gesture }
     }
 
     // --- enter: neutral → hold ---

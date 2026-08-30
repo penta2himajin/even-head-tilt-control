@@ -102,6 +102,66 @@ describe('PoseTracker enter/return', () => {
     expect(events).toContain('return')
     expect(events).not.toContain('shake')
   })
+
+  it('switches held tilt-L to opposite tilt-R without a long neutral dwell', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    // settle neutral
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    // enter tilt-L (roll / z-) and hold past settle
+    for (let i = 0; i < 8; i++) push(0.02, 0.02, 0.7)
+    // brief transit through near-neutral (shorter than SETTLE_MS), then opposite tilt-R
+    push(0, 0, 0.95, 80)
+    push(0, 0, 1.0, 80)
+    for (let i = 0; i < 8; i++) push(0.02, -0.02, 1.3)
+
+    expect(events.filter((e) => e === 'tilt-L')).toHaveLength(1)
+    expect(events.filter((e) => e === 'tilt-R')).toHaveLength(1)
+    // Must not require a settled return between opposite holds
+    const l = events.indexOf('tilt-L')
+    const r = events.indexOf('tilt-R')
+    expect(r).toBeGreaterThan(l)
+    expect(events.slice(l + 1, r)).not.toContain('return')
+  })
+
+  it('switches held face-L to opposite face-R without a long neutral dwell', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
+    push(0, -0.05, 1, 80)
+    push(0, 0.02, 1, 80)
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
+
+    expect(events.filter((e) => e === 'face-L')).toHaveLength(1)
+    expect(events.filter((e) => e === 'face-R')).toHaveLength(1)
+    const l = events.indexOf('face-L')
+    const r = events.indexOf('face-R')
+    expect(r).toBeGreaterThan(l)
+    expect(events.slice(l + 1, r)).not.toContain('return')
+  })
 })
 
 describe('persistence helpers', () => {
