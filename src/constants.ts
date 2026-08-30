@@ -29,8 +29,11 @@ export type HoldGesture = (typeof HOLD_GESTURES)[number]
 
 /** Old persisted ids → current (bindings v1). */
 export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
-  'face-L': 'turn-L',
-  'face-R': 'turn-R',
+  'face-L': 'tilt-L',
+  'face-R': 'tilt-R',
+  // Accel y-axis was briefly named turn-* but is physical roll / tilt-L/R.
+  'turn-L': 'tilt-L',
+  'turn-R': 'tilt-R',
 }
 
 export const EXEC_COOLDOWN_MS = 150
@@ -38,6 +41,11 @@ export const MOTION_WINDOW_MS = 1500
 
 /** Settle time inside a pose band before enter/return commits. */
 export const SETTLE_MS = 280
+/**
+ * Extra stillness required to enter a hold (nod/shake stay moving).
+ * Shorter than SETTLE_MS so intentional tilts stay snappy.
+ */
+export const STILL_HOLD_MS = 120
 /** After return-to-neutral, ignore oscillate briefly (offsets already cleared). */
 export const RETURN_SUPPRESS_MS = 100
 

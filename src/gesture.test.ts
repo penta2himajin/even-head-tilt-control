@@ -22,7 +22,7 @@ function seq(
 }
 
 describe('classifyBindingWindow', () => {
-  it('detects turn-R hold from yaw/turn axis', () => {
+  it('detects tilt-R hold from roll / y axis', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.2, 1],
@@ -31,7 +31,7 @@ describe('classifyBindingWindow', () => {
       [0, 0.4, 0.9],
       [0, 0.4, 0.9],
     ])
-    expect(classifyBindingWindow(samples)).toBe('turn-R')
+    expect(classifyBindingWindow(samples)).toBe('tilt-R')
   })
 
   it('detects nod from pitch return to neutral', () => {
@@ -85,7 +85,7 @@ describe('classifyBindingWindow', () => {
 })
 
 describe('PoseTracker enter/return', () => {
-  it('emits turn-R on enter and does not emit shake on return', () => {
+  it('emits tilt-R on enter and does not emit shake on return', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     const push = (x: number, y: number, z: number, t: number) => {
@@ -94,11 +94,11 @@ describe('PoseTracker enter/return', () => {
     }
     // settle neutral
     for (let i = 0; i < 5; i++) push(0, 0, 1, i * 100)
-    // move to turn-R and hold
+    // move to tilt-R and hold
     for (let i = 0; i < 8; i++) push(0, 0.35, 0.94, 500 + i * 100)
     // return to neutral
     for (let i = 0; i < 8; i++) push(0, 0.02, 1, 1400 + i * 100)
-    expect(events).toContain('turn-R')
+    expect(events).toContain('tilt-R')
     expect(events).toContain('return')
     expect(events).not.toContain('shake')
   })
@@ -119,12 +119,12 @@ describe('PoseTracker enter/return', () => {
 
     // settle neutral
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // enter tilt-L (roll / z-) and hold past settle while still
-    for (let i = 0; i < 8; i++) push(0.02, 0.02, 0.7)
+    // enter tilt-L (roll / y-) and hold past settle while still
+    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
     // brief transit through near-neutral (shorter than SETTLE_MS), then opposite tilt-R
-    push(0, 0, 0.95, 80)
-    push(0, 0, 1.0, 80)
-    for (let i = 0; i < 8; i++) push(0.02, -0.02, 1.3)
+    push(0, -0.05, 1, 80)
+    push(0, 0.02, 1, 80)
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
 
     expect(events.filter((e) => e === 'tilt-L')).toHaveLength(1)
     expect(events.filter((e) => e === 'tilt-R')).toHaveLength(1)
@@ -135,33 +135,6 @@ describe('PoseTracker enter/return', () => {
     expect(events.slice(l + 1, r)).not.toContain('return')
   })
 
-  it('switches held turn-L to opposite turn-R without a long neutral dwell', () => {
-    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
-    const events: string[] = []
-    let t = 0
-    const push = (x: number, y: number, z: number, step = 50) => {
-      t += step
-      const ev = tracker.push({ x, y, z, t })
-      if (ev) {
-        events.push(
-          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
-        )
-      }
-    }
-
-    for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
-    push(0, -0.05, 1, 80)
-    push(0, 0.02, 1, 80)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
-
-    expect(events.filter((e) => e === 'turn-L')).toHaveLength(1)
-    expect(events.filter((e) => e === 'turn-R')).toHaveLength(1)
-    const l = events.indexOf('turn-L')
-    const r = events.indexOf('turn-R')
-    expect(r).toBeGreaterThan(l)
-    expect(events.slice(l + 1, r)).not.toContain('return')
-  })
 
   it('detects nod soon after returning from tilt (no long return suppress)', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
@@ -178,7 +151,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0.02, 0.02, 0.7) // tilt-L
+    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94) // tilt-L
     for (let i = 0; i < 8; i++) push(0, 0, 1) // return
     expect(events).toContain('tilt-L')
     expect(events).toContain('return')
@@ -196,7 +169,7 @@ describe('PoseTracker enter/return', () => {
     expect(events).toContain('nod')
   })
 
-  it('detects shake soon after returning from turn', () => {
+  it('detects shake soon after returning from tilt', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
@@ -211,9 +184,9 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // turn-R
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // tilt-R
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    expect(events).toContain('turn-R')
+    expect(events).toContain('tilt-R')
     expect(events).toContain('return')
     const afterReturn = t
 
@@ -260,7 +233,7 @@ describe('persistence helpers', () => {
     const bindings = {
       tap: 'nod' as const,
       dbl: null,
-      'swipe-up': 'turn-L' as const,
+      'swipe-up': 'tilt-L' as const,
       'swipe-down': null,
     }
     const raw = serializeBindings(bindings)
@@ -268,21 +241,21 @@ describe('persistence helpers', () => {
   })
 
 
-  it('migrates legacy face-* bindings to turn-*', () => {
+  it('migrates legacy face-*/turn-* bindings to tilt-*', () => {
     const raw = JSON.stringify({
       version: 1,
       bindings: {
         tap: 'nod',
         dbl: null,
         'swipe-up': 'face-L',
-        'swipe-down': 'face-R',
+        'swipe-down': 'turn-R',
       },
     })
     expect(parsePersisted(raw)).toEqual({
       tap: 'nod',
       dbl: null,
-      'swipe-up': 'turn-L',
-      'swipe-down': 'turn-R',
+      'swipe-up': 'tilt-L',
+      'swipe-down': 'tilt-R',
     })
   })
 
@@ -290,7 +263,7 @@ describe('persistence helpers', () => {
     const bindings = {
       tap: 'nod' as const,
       dbl: null,
-      'swipe-up': 'turn-L' as const,
+      'swipe-up': 'tilt-L' as const,
       'swipe-down': null,
     }
     expect(findControlForGesture(bindings, 'nod')).toBe('tap')

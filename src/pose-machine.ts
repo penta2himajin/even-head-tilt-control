@@ -7,6 +7,7 @@ import {
   NOD_PEAK,
   RETURN_SUPPRESS_MS,
   SETTLE_MS,
+  STILL_HOLD_MS,
   SHAKE_PEAK,
   STILL_BEFORE_EMA_MS,
   STILL_EPS,
@@ -201,10 +202,11 @@ export class PoseTracker {
 
     const settled =
       this.candidateSince !== null && now - this.candidateSince >= SETTLE_MS
-    // Hold enter/switch needs stillness so a moving nod/shake cannot "settle"
-    // into tilt-F / turn-* and steal the oscillate.
+    // Hold enter/switch needs a short stillness so a moving nod/shake cannot
+    // "settle" into tilt-* and steal the oscillate — but keep STILL_HOLD_MS
+    // short so intentional tilts stay responsive.
     const stillSettled =
-      this.stillSince !== null && now - this.stillSince >= SETTLE_MS
+      this.stillSince !== null && now - this.stillSince >= STILL_HOLD_MS
     const holdEnterReady = settled && stillSettled
 
     // --- return: held → neutral ---

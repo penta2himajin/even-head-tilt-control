@@ -57,7 +57,8 @@ export function meanVec(samples: Vec3[]): Vec3 {
 
 /**
  * Map offset-from-neutral to a hold pose using dominant axis.
- * Device rest ≈ gravity on z; pitch→x, turn/yaw lean→y, roll→z.
+ * Device rest ≈ gravity on z; pitch→x, roll (ear↔shoulder)→y.
+ * True yaw turn needs gyro — not classified from accel alone.
  */
 export function holdFromOffset(offset: Vec3, enter: number): HoldGesture | null {
   const ax = Math.abs(offset.x)
@@ -66,13 +67,15 @@ export function holdFromOffset(offset: Vec3, enter: number): HoldGesture | null 
   const peak = Math.max(ax, ay, az)
   if (peak < enter) return null
 
+  // Lateral roll is the y-axis signal users experience as tilt-L/R.
   if (ay >= ax && ay >= az) {
-    return offset.y >= 0 ? 'turn-R' : 'turn-L'
+    return offset.y >= 0 ? 'tilt-R' : 'tilt-L'
   }
   if (ax >= ay && ax >= az) {
     return offset.x < 0 ? 'tilt-F' : 'tilt-B'
   }
-  return offset.z >= 0 ? 'tilt-R' : 'tilt-L'
+  // z-dominant alone is ambiguous with gravity-on-z rest; treat as motion.
+  return null
 }
 
 export function classifyRegion(
