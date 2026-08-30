@@ -38,8 +38,8 @@ export const MOTION_WINDOW_MS = 1500
 
 /** Settle time inside a pose band before enter/return commits. */
 export const SETTLE_MS = 280
-/** After return-to-neutral, ignore oscillate this long. */
-export const RETURN_SUPPRESS_MS = 450
+/** After return-to-neutral, ignore oscillate briefly (offsets already cleared). */
+export const RETURN_SUPPRESS_MS = 100
 
 /**
  * G2 IMU = gravity-normalized accel (~1g). Offsets are vs dynamic neutral n̂.

@@ -162,6 +162,71 @@ describe('PoseTracker enter/return', () => {
     expect(r).toBeGreaterThan(l)
     expect(events.slice(l + 1, r)).not.toContain('return')
   })
+
+  it('detects nod soon after returning from tilt (no long return suppress)', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 8; i++) push(0.02, 0.02, 0.7) // tilt-L
+    for (let i = 0; i < 8; i++) push(0, 0, 1) // return
+    expect(events).toContain('tilt-L')
+    expect(events).toContain('return')
+    const afterReturn = t
+
+    // Nod peak + return to neutral, finishing well under the old 450ms suppress.
+    push(-0.15, 0, 0.98, 50)
+    push(-0.35, 0, 0.9, 50)
+    push(-0.4, 0.01, 0.88, 50)
+    push(-0.2, 0, 0.96, 50)
+    push(-0.05, 0, 1, 50)
+    push(0, 0, 1, 50)
+
+    expect(t - afterReturn).toBeLessThan(450)
+    expect(events).toContain('nod')
+  })
+
+  it('detects shake soon after returning from turn', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // turn-R
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    expect(events).toContain('turn-R')
+    expect(events).toContain('return')
+    const afterReturn = t
+
+    push(0, 0.12, 1, 50)
+    push(0, -0.12, 1, 50)
+    push(0, 0.1, 1, 50)
+    push(0, -0.08, 1, 50)
+    push(0, 0.02, 1, 50)
+    push(0, 0, 1, 50)
+
+    expect(t - afterReturn).toBeLessThan(450)
+    expect(events).toContain('shake')
+  })
 })
 
 describe('persistence helpers', () => {
