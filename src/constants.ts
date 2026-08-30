@@ -27,7 +27,7 @@ export const HOLD_GESTURES = [
 ] as const
 export type HoldGesture = (typeof HOLD_GESTURES)[number]
 
-export const EXEC_COOLDOWN_MS = 500
+export const EXEC_COOLDOWN_MS = 150
 export const MOTION_WINDOW_MS = 1500
 
 /** Settle time inside a pose band before enter/return commits. */
