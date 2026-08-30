@@ -4,11 +4,14 @@ import {
   formatListItems,
 } from './format.ts'
 import { onDebugStatus, type DebugWsStatus } from './debug-telemetry.ts'
-import type { AppSnapshot } from './types.ts'
+import { formatImuLive } from './imu-live.ts'
+import type { AppSnapshot, ImuLiveView } from './types.ts'
 
 export interface PhoneUi {
   root: HTMLElement
   refresh(snapshot: AppSnapshot): void
+  /** High-frequency IMU readout without rebuilding bindings/log. */
+  updateImuLive(live: ImuLiveView | null): void
   appendLog(snapshot: AppSnapshot, index: number): void
   setDebugStatus(status: DebugWsStatus): void
 }
@@ -33,6 +36,7 @@ export function createPhoneUi(
       <p class="phone-hint">グラスを平面に置いてから開始（重力平衡 g₀）</p>
       <button type="button" id="phone-calib" class="phone-calib-btn">平面キャリブ開始</button>
       <p id="phone-pose" class="phone-mode"></p>
+      <pre id="phone-imu-live" class="phone-pre phone-imu-live" aria-live="polite"></pre>
     </section>
     <section class="phone-panel">
       <h2>Bindings</h2>
@@ -52,6 +56,7 @@ export function createPhoneUi(
   const bindingsEl = root.querySelector('#phone-bindings') as HTMLDivElement
   const modeEl = root.querySelector('#phone-mode') as HTMLParagraphElement
   const poseEl = root.querySelector('#phone-pose') as HTMLParagraphElement
+  const imuLiveEl = root.querySelector('#phone-imu-live') as HTMLPreElement
   const logEl = root.querySelector('#phone-log') as HTMLPreElement
   const debugEl = root.querySelector('#phone-debug-ws') as HTMLParagraphElement
   const calibBtn = root.querySelector('#phone-calib') as HTMLButtonElement
@@ -84,6 +89,7 @@ export function createPhoneUi(
     }
 
     poseEl.textContent = snapshot.poseStatus || 'pose: —'
+    paintImuLive(snapshot.imuLive)
     calibBtn.disabled = snapshot.poseStatus.includes('calib…')
     calibBtn.textContent = snapshot.poseStatus.includes('calib…')
       ? 'キャリブ中…'
@@ -106,12 +112,21 @@ export function createPhoneUi(
             .join('\n')
   }
 
+  const paintImuLive = (live: ImuLiveView | null) => {
+    const imuLines = formatImuLive(live)
+    imuLiveEl.textContent = `${imuLines.accelLine}\n${imuLines.gyroLine}`
+  }
+
+  const updateImuLive = (live: ImuLiveView | null) => {
+    paintImuLive(live)
+  }
+
   const appendLog = (snapshot: AppSnapshot, index: number) => {
     refresh(snapshot)
     void index
   }
 
-  return { root, refresh, appendLog, setDebugStatus }
+  return { root, refresh, updateImuLive, appendLog, setDebugStatus }
 }
 
 export function formatBindingsSummary(snapshot: AppSnapshot): string {

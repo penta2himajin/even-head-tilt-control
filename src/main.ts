@@ -35,6 +35,7 @@ import {
   buildTitleUpgrade,
 } from './hub-page.ts'
 import { createPhoneUi, formatBindingsSummary } from './phone-ui.ts'
+import { parseImuLive } from './imu-live.ts'
 import { mockImuEnabled, startMockImu, type MockImuHandle } from './mock-imu.ts'
 import {
   parseGravityCalib,
@@ -148,6 +149,7 @@ async function main() {
     logs: [],
     poseStatus: 'pose: —',
     statusLabel: 'neutral',
+    imuLive: null,
   }
 
   const bindingSamples: ImuSample[] = []
@@ -251,7 +253,14 @@ async function main() {
     await rebuildGlasses(hub)
   }
 
-  const onImuSample = async (hub: EvenAppBridge, sample: ImuSample) => {
+  const onImuSample = async (
+    hub: EvenAppBridge,
+    sample: ImuSample,
+    /** Prefer raw Hub imuData so gyro-like keys (if any) survive. */
+    rawPayload?: unknown,
+  ) => {
+    snapshot.imuLive = parseImuLive(rawPayload ?? sample, sample.t)
+    phone.updateImuLive(snapshot.imuLive)
     debugSendImu(sample)
 
     // Flat calib may run anytime (including before binding).
@@ -385,8 +394,14 @@ async function main() {
       const type = rawEventType(event)
 
       if (sysType === OsEventTypeList.IMU_DATA_REPORT && event.sysEvent?.imuData) {
-        const { x = 0, y = 0, z = 0 } = event.sysEvent.imuData
-        await onImuSample(hub, { x, y, z, t: Date.now() })
+        const raw = event.sysEvent.imuData as unknown as Record<string, unknown>
+        const now = Date.now()
+        const live = parseImuLive(raw, now)
+        await onImuSample(
+          hub,
+          { x: live.ax, y: live.ay, z: live.az, t: now },
+          raw,
+        )
         return
       }
 
