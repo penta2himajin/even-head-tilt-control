@@ -10,6 +10,18 @@ Even G2 向けプラグイン。頭の動き（頷き・首振り・顔向き・
 
 詳細は英語版 [README.md](./README.md) を参照してください。
 
+## 実機サイドロード（QR）
+
+Cloud Agent などスマホから `localhost` に届かない場合、`npm run qr` だけでは不十分です。トンネルを張ってから `npm run qr:tunnel` を使います。
+
+手順の全体（トンネル起動 → QR → スマホスキャン → グラス）: **[docs/device-sideload.ja.md](./docs/device-sideload.ja.md)** · [English](./docs/device-sideload.md)
+
+```bash
+npm run dev                          # 端末1
+bash scripts/dev-tunnel.sh           # 端末2 — /tmp/cf-tunnel.log に記録
+npm run qr:tunnel                    # 端末3 — Cloudflare URL 向け QR
+```
+
 ## License
 
 MIT — [LICENSE](./LICENSE)。
