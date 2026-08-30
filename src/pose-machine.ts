@@ -2,6 +2,7 @@ import {
   CONTROL_IDS,
   FLAT_CALIB_MS,
   HOLD_ENTER,
+  HOLD_ENTER_SETTLE_MS,
   NEUTRAL_BAND,
   NEUTRAL_EMA_ALPHA,
   NOD_PEAK,
@@ -201,6 +202,9 @@ export class PoseTracker {
 
     const settled =
       this.candidateSince !== null && now - this.candidateSince >= SETTLE_MS
+    const holdEnterSettled =
+      this.candidateSince !== null &&
+      now - this.candidateSince >= HOLD_ENTER_SETTLE_MS
 
     // --- return: held → neutral ---
     if (this.phase === 'held' && region === 'neutral' && settled) {
@@ -220,7 +224,7 @@ export class PoseTracker {
       region !== 'neutral' &&
       region !== 'motion' &&
       region !== this.heldGesture &&
-      settled
+      holdEnterSettled
     ) {
       const gesture = region as HoldGesture
       this.heldGesture = gesture
@@ -228,8 +232,13 @@ export class PoseTracker {
       return { kind: 'enter', gesture }
     }
 
-    // --- enter: neutral → hold ---
-    if (this.phase === 'neutral' && region !== 'neutral' && region !== 'motion' && settled) {
+    // --- enter: neutral → hold (longer settle than return / oscillate) ---
+    if (
+      this.phase === 'neutral' &&
+      region !== 'neutral' &&
+      region !== 'motion' &&
+      holdEnterSettled
+    ) {
       const gesture = region as HoldGesture
       this.phase = 'held'
       this.heldGesture = gesture

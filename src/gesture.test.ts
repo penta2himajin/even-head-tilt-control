@@ -119,12 +119,12 @@ describe('PoseTracker enter/return', () => {
 
     // settle neutral
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // enter tilt-L (roll / z-) and hold past settle
-    for (let i = 0; i < 8; i++) push(0.02, 0.02, 0.7)
+    // enter tilt-L (roll / z-) and hold past HOLD_ENTER_SETTLE_MS
+    for (let i = 0; i < 14; i++) push(0.02, 0.02, 0.7)
     // brief transit through near-neutral (shorter than SETTLE_MS), then opposite tilt-R
     push(0, 0, 0.95, 80)
     push(0, 0, 1.0, 80)
-    for (let i = 0; i < 8; i++) push(0.02, -0.02, 1.3)
+    for (let i = 0; i < 14; i++) push(0.02, -0.02, 1.3)
 
     expect(events.filter((e) => e === 'tilt-L')).toHaveLength(1)
     expect(events.filter((e) => e === 'tilt-R')).toHaveLength(1)
@@ -150,10 +150,10 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
+    for (let i = 0; i < 14; i++) push(0, -0.35, 0.94)
     push(0, -0.05, 1, 80)
     push(0, 0.02, 1, 80)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94)
 
     expect(events.filter((e) => e === 'turn-L')).toHaveLength(1)
     expect(events.filter((e) => e === 'turn-R')).toHaveLength(1)
@@ -178,7 +178,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0.02, 0.02, 0.7) // tilt-L
+    for (let i = 0; i < 14; i++) push(0.02, 0.02, 0.7) // tilt-L
     for (let i = 0; i < 8; i++) push(0, 0, 1) // return
     expect(events).toContain('tilt-L')
     expect(events).toContain('return')
@@ -211,7 +211,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // turn-R
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94) // turn-R
     for (let i = 0; i < 8; i++) push(0, 0, 1)
     expect(events).toContain('turn-R')
     expect(events).toContain('return')
@@ -227,6 +227,39 @@ describe('PoseTracker enter/return', () => {
     expect(t - afterReturn).toBeLessThan(450)
     expect(events).toContain('shake')
   })
+
+  it('classifies a quick pitch dip as nod, not tilt-F enter', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    // Peak above HOLD_ENTER (~0.35) for ~350ms (< HOLD_ENTER_SETTLE_MS), then return
+    push(-0.2, 0, 0.98)
+    push(-0.35, 0, 0.9)
+    push(-0.4, 0, 0.88)
+    push(-0.38, 0, 0.89)
+    push(-0.35, 0, 0.9)
+    push(-0.25, 0, 0.95)
+    push(-0.1, 0, 0.99)
+    push(-0.02, 0, 1)
+    push(0, 0, 1)
+    push(0, 0, 1)
+
+    expect(events).toContain('nod')
+    expect(events).not.toContain('tilt-F')
+  })
+
+
 })
 
 describe('persistence helpers', () => {
