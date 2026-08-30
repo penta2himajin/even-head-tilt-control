@@ -8,8 +8,8 @@ export type ControlId = (typeof CONTROL_IDS)[number]
 export const GESTURE_TYPES = [
   'nod',
   'shake',
-  'face-L',
-  'face-R',
+  'turn-L',
+  'turn-R',
   'tilt-F',
   'tilt-B',
   'tilt-L',
@@ -18,14 +18,20 @@ export const GESTURE_TYPES = [
 export type GestureType = (typeof GESTURE_TYPES)[number]
 
 export const HOLD_GESTURES = [
-  'face-L',
-  'face-R',
+  'turn-L',
+  'turn-R',
   'tilt-F',
   'tilt-B',
   'tilt-L',
   'tilt-R',
 ] as const
 export type HoldGesture = (typeof HOLD_GESTURES)[number]
+
+/** Old persisted ids → current (bindings v1). */
+export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
+  'face-L': 'turn-L',
+  'face-R': 'turn-R',
+}
 
 export const EXEC_COOLDOWN_MS = 150
 export const MOTION_WINDOW_MS = 1500
@@ -79,8 +85,8 @@ export const CONTROL_LABELS: Record<ControlId, string> = {
 export const GESTURE_LABELS: Record<GestureType, string> = {
   nod: 'nod',
   shake: 'shake',
-  'face-L': 'face-L',
-  'face-R': 'face-R',
+  'turn-L': 'turn-L',
+  'turn-R': 'turn-R',
   'tilt-F': 'tilt-F',
   'tilt-B': 'tilt-B',
   'tilt-L': 'tilt-L',

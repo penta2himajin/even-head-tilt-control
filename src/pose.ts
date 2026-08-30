@@ -57,7 +57,7 @@ export function meanVec(samples: Vec3[]): Vec3 {
 
 /**
  * Map offset-from-neutral to a hold pose using dominant axis.
- * Device rest ≈ gravity on z; pitch→x, face/yaw lean→y, roll→z.
+ * Device rest ≈ gravity on z; pitch→x, turn/yaw lean→y, roll→z.
  */
 export function holdFromOffset(offset: Vec3, enter: number): HoldGesture | null {
   const ax = Math.abs(offset.x)
@@ -67,7 +67,7 @@ export function holdFromOffset(offset: Vec3, enter: number): HoldGesture | null 
   if (peak < enter) return null
 
   if (ay >= ax && ay >= az) {
-    return offset.y >= 0 ? 'face-R' : 'face-L'
+    return offset.y >= 0 ? 'turn-R' : 'turn-L'
   }
   if (ax >= ay && ax >= az) {
     return offset.x < 0 ? 'tilt-F' : 'tilt-B'

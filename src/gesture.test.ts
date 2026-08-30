@@ -22,7 +22,7 @@ function seq(
 }
 
 describe('classifyBindingWindow', () => {
-  it('detects face-R hold from yaw axis', () => {
+  it('detects turn-R hold from yaw/turn axis', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.2, 1],
@@ -31,7 +31,7 @@ describe('classifyBindingWindow', () => {
       [0, 0.4, 0.9],
       [0, 0.4, 0.9],
     ])
-    expect(classifyBindingWindow(samples)).toBe('face-R')
+    expect(classifyBindingWindow(samples)).toBe('turn-R')
   })
 
   it('detects nod from pitch return to neutral', () => {
@@ -85,7 +85,7 @@ describe('classifyBindingWindow', () => {
 })
 
 describe('PoseTracker enter/return', () => {
-  it('emits face-R on enter and does not emit shake on return', () => {
+  it('emits turn-R on enter and does not emit shake on return', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     const push = (x: number, y: number, z: number, t: number) => {
@@ -94,11 +94,11 @@ describe('PoseTracker enter/return', () => {
     }
     // settle neutral
     for (let i = 0; i < 5; i++) push(0, 0, 1, i * 100)
-    // move to face-R and hold
+    // move to turn-R and hold
     for (let i = 0; i < 8; i++) push(0, 0.35, 0.94, 500 + i * 100)
     // return to neutral
     for (let i = 0; i < 8; i++) push(0, 0.02, 1, 1400 + i * 100)
-    expect(events).toContain('face-R')
+    expect(events).toContain('turn-R')
     expect(events).toContain('return')
     expect(events).not.toContain('shake')
   })
@@ -135,7 +135,7 @@ describe('PoseTracker enter/return', () => {
     expect(events.slice(l + 1, r)).not.toContain('return')
   })
 
-  it('switches held face-L to opposite face-R without a long neutral dwell', () => {
+  it('switches held turn-L to opposite turn-R without a long neutral dwell', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
@@ -155,10 +155,10 @@ describe('PoseTracker enter/return', () => {
     push(0, 0.02, 1, 80)
     for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
 
-    expect(events.filter((e) => e === 'face-L')).toHaveLength(1)
-    expect(events.filter((e) => e === 'face-R')).toHaveLength(1)
-    const l = events.indexOf('face-L')
-    const r = events.indexOf('face-R')
+    expect(events.filter((e) => e === 'turn-L')).toHaveLength(1)
+    expect(events.filter((e) => e === 'turn-R')).toHaveLength(1)
+    const l = events.indexOf('turn-L')
+    const r = events.indexOf('turn-R')
     expect(r).toBeGreaterThan(l)
     expect(events.slice(l + 1, r)).not.toContain('return')
   })
@@ -169,18 +169,37 @@ describe('persistence helpers', () => {
     const bindings = {
       tap: 'nod' as const,
       dbl: null,
-      'swipe-up': 'face-L' as const,
+      'swipe-up': 'turn-L' as const,
       'swipe-down': null,
     }
     const raw = serializeBindings(bindings)
     expect(parsePersisted(raw)).toEqual(bindings)
   })
 
+
+  it('migrates legacy face-* bindings to turn-*', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      bindings: {
+        tap: 'nod',
+        dbl: null,
+        'swipe-up': 'face-L',
+        'swipe-down': 'face-R',
+      },
+    })
+    expect(parsePersisted(raw)).toEqual({
+      tap: 'nod',
+      dbl: null,
+      'swipe-up': 'turn-L',
+      'swipe-down': 'turn-R',
+    })
+  })
+
   it('maps gesture back to control', () => {
     const bindings = {
       tap: 'nod' as const,
       dbl: null,
-      'swipe-up': 'face-L' as const,
+      'swipe-up': 'turn-L' as const,
       'swipe-down': null,
     }
     expect(findControlForGesture(bindings, 'nod')).toBe('tap')
