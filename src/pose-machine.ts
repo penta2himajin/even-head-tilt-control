@@ -5,9 +5,9 @@ import {
   NEUTRAL_BAND,
   NEUTRAL_EMA_ALPHA,
   NOD_PEAK,
+  OSCILLATE_MAX_MS,
   RETURN_SUPPRESS_MS,
   SETTLE_MS,
-  STILL_HOLD_MS,
   SHAKE_PEAK,
   STILL_BEFORE_EMA_MS,
   STILL_EPS,
@@ -202,12 +202,8 @@ export class PoseTracker {
 
     const settled =
       this.candidateSince !== null && now - this.candidateSince >= SETTLE_MS
-    // Hold enter/switch needs a short stillness so a moving nod/shake cannot
-    // "settle" into tilt-* and steal the oscillate — but keep STILL_HOLD_MS
-    // short so intentional tilts stay responsive.
-    const stillSettled =
-      this.stillSince !== null && now - this.stillSince >= STILL_HOLD_MS
-    const holdEnterReady = settled && stillSettled
+    // Hold enter/switch: settle in pose band only (no stillness gate).
+    const holdEnterReady = settled
 
     // --- return: held → neutral ---
     if (this.phase === 'held' && region === 'neutral' && settled) {
@@ -235,7 +231,7 @@ export class PoseTracker {
       return { kind: 'enter', gesture }
     }
 
-    // --- enter: neutral → hold (region settle + stillness) ---
+    // --- enter: neutral → hold (band settle only) ---
     if (
       this.phase === 'neutral' &&
       region !== 'neutral' &&
@@ -277,18 +273,41 @@ export class PoseTracker {
 
 function detectOscillate(offsets: OffsetSample[]): 'nod' | 'shake' | null {
   if (offsets.length < 4) return null
-  const xs = offsets.map((o) => o.dx)
-  const ys = offsets.map((o) => o.dy)
-  const xPeak = Math.max(...xs.map((v) => Math.abs(v)))
-  const yPeak = Math.max(...ys.map((v) => Math.abs(v)))
   const last = offsets[offsets.length - 1]
   const nearNeutral =
     absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
   if (!nearNeutral) return null
 
+  // Quiet ≈ upright / 頭頂. Stricter than the end-of-gesture nearNeutral band so
+  // a borderline lean does not count as the origin. Low enough that shake peaks
+  // (SHAKE_PEAK) still count as motion.
+  const quiet = NEUTRAL_BAND * 0.5
+  const tMin = last.t - OSCILLATE_MAX_MS
+  let originIdx = -1
+  for (let i = 0; i < offsets.length - 1; i++) {
+    if (offsets[i].t < tMin) continue
+    const o = offsets[i]
+    if (absMax({ x: o.dx, y: o.dy, z: o.dz }) > quiet) continue
+    const hasMotion = offsets.slice(i + 1).some(
+      (s) => absMax({ x: s.dx, y: s.dy, z: s.dz }) > quiet,
+    )
+    if (hasMotion) {
+      originIdx = i
+      break
+    }
+  }
+  if (originIdx < 0) return null
+  const excursion = offsets.slice(originIdx)
+  if (last.t - excursion[0].t > OSCILLATE_MAX_MS) return null
+
+  const xs = excursion.map((o) => o.dx)
+  const ys = excursion.map((o) => o.dy)
+  const xPeak = Math.max(...xs.map((v) => Math.abs(v)))
+  const yPeak = Math.max(...ys.map((v) => Math.abs(v)))
+
   // Shake: turn-L ↔ turn-R reciprocation, then back near neutral.
-  // True yaw needs gyro; until then y (same channel as tilt-L/R) is the proxy —
-  // hold vs oscillate are separated by stillness vs reversal.
+  // True yaw needs gyro; until then y (same channel as tilt-L/R) is the proxy.
+  // Hold vs oscillate: settle-in-band vs short upright-origin window.
   const turnR = Math.max(...ys) // +y
   const turnL = -Math.min(...ys) // magnitude of −y
   if (
@@ -313,7 +332,6 @@ function detectOscillate(offsets: OffsetSample[]): 'nod' | 'shake' | null {
   }
   return null
 }
-
 /** Classify a binding long-press window with a frozen local neutral. */
 export function classifyBindingWindow(samples: ImuSample[]): GestureType | null {
   if (samples.length === 0) return null

@@ -42,12 +42,14 @@ export const MOTION_WINDOW_MS = 1500
 /** Settle time inside a pose band before enter/return commits. */
 export const SETTLE_MS = 280
 /**
- * Extra stillness required to enter a hold (nod/shake stay moving).
- * Shorter than SETTLE_MS so intentional tilts stay snappy.
+ * Nod/shake must leave upright (near neutral) and complete within this span.
+ * Hold uses settle only; oscillate uses this upright-origin window instead of stillness.
  */
-export const STILL_HOLD_MS = 120
+export const OSCILLATE_MAX_MS = 900
 /** After return-to-neutral, ignore oscillate briefly (offsets already cleared). */
 export const RETURN_SUPPRESS_MS = 100
+/** @deprecated — hold enter is settle-only; kept for older imports. */
+export const STILL_HOLD_MS = 0
 
 /**
  * G2 IMU = gravity-normalized accel (~1g). Offsets are vs dynamic neutral n̂.

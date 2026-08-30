@@ -227,7 +227,7 @@ describe('PoseTracker enter/return', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
-    const push = (x: number, y: number, z: number, step = 50) => {
+    const push = (x: number, y: number, z: number, step = 40) => {
       t += step
       const ev = tracker.push({ x, y, z, t })
       if (ev) {
@@ -238,13 +238,62 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // Moving pitch excursion above HOLD_ENTER for > SETTLE_MS, then return.
-    // Without a stillness gate this becomes tilt-F; with it, nod wins.
-    const dip = [-0.2, -0.3, -0.38, -0.42, -0.4, -0.35, -0.28, -0.18, -0.08, -0.02, 0, 0]
+    // Peak dwell in tilt-F must stay under SETTLE_MS so settle-only hold does not win.
+    const dip = [-0.2, -0.35, -0.42, -0.28, -0.1, -0.02, 0]
     for (const x of dip) push(x, 0, Math.sqrt(Math.max(0.01, 1 - x * x)))
 
     expect(events).toContain('nod')
     expect(events).not.toContain('tilt-F')
+  })
+
+  it('enters tilt hold on settle alone even while samples still jitter in-band', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 40) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    // Stay in tilt-R band with sample-to-sample motion above STILL_EPS — settle must suffice.
+    const ys = [0.32, 0.38, 0.33, 0.4, 0.34, 0.39, 0.35, 0.41, 0.36]
+    for (const y of ys) push(0, y, Math.sqrt(Math.max(0.01, 1 - y * y)))
+
+    expect(events).toContain('tilt-R')
+    expect(events).not.toContain('shake')
+  })
+
+  it('rejects nod when the upright-origin excursion exceeds OSCILLATE_MAX_MS', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step: number) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1, 50)
+    // Slow nod-shaped path: leave upright, peak, return — span clearly > OSCILLATE_MAX_MS.
+    push(-0.15, 0, 0.98, 200)
+    push(-0.35, 0, 0.9, 200)
+    push(-0.42, 0, 0.88, 200)
+    push(-0.35, 0, 0.9, 200)
+    push(-0.25, 0, 0.95, 200)
+    push(-0.1, 0, 0.99, 200)
+    push(0, 0, 1, 200)
+
+    expect(events).not.toContain('nod')
   })
 
 
