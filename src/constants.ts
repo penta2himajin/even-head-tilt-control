@@ -65,9 +65,12 @@ export const NEUTRAL_EMA_ALPHA = 0.025
 /** Flat-desk calib: collect this many ms of samples. */
 export const FLAT_CALIB_MS = 2000
 
-/** Min peak |Δx| vs neutral for nod oscillate. */
+/** Min forward (tilt-F, −x) peak vs neutral for nod: neutral↔tilt-F only. */
 export const NOD_PEAK = 0.2
-/** Min peak |Δy| vs neutral for shake oscillate (bidirectional). */
+/**
+ * Min |peak| on each turn side for shake (turn-L↔turn-R).
+ * Accel has no yaw; lateral y is the interim proxy until gyro.
+ */
 export const SHAKE_PEAK = 0.07
 
 /** @deprecated */

@@ -34,7 +34,7 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).toBe('tilt-R')
   })
 
-  it('detects nod from pitch return to neutral', () => {
+  it('detects nod from tilt-F round-trip to neutral', () => {
     const samples = seq([
       [0, 0, 1],
       [-0.25, 0, 0.97],
@@ -45,7 +45,29 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).toBe('nod')
   })
 
-  it('detects bidirectional shake', () => {
+  it('does not treat tilt-B round-trip as nod', () => {
+    const samples = seq([
+      [0, 0, 1],
+      [0.25, 0, 0.97],
+      [0.4, 0, 0.9],
+      [0.15, 0, 0.98],
+      [0.02, 0, 1],
+    ])
+    expect(classifyBindingWindow(samples)).not.toBe('nod')
+  })
+
+  it('does not treat tilt-F/B reciprocation as nod', () => {
+    const samples = seq([
+      [0, 0, 1],
+      [-0.35, 0, 0.9],
+      [0.35, 0, 0.9],
+      [-0.3, 0, 0.92],
+      [0.02, 0, 1],
+    ])
+    expect(classifyBindingWindow(samples)).not.toBe('nod')
+  })
+
+  it('detects shake as turn-L/R reciprocation (y proxy)', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.1, 1],

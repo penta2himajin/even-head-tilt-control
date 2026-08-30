@@ -282,21 +282,33 @@ function detectOscillate(offsets: OffsetSample[]): 'nod' | 'shake' | null {
   const xPeak = Math.max(...xs.map((v) => Math.abs(v)))
   const yPeak = Math.max(...ys.map((v) => Math.abs(v)))
   const last = offsets[offsets.length - 1]
-  const nearNeutral = absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
+  const nearNeutral =
+    absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
+  if (!nearNeutral) return null
 
-  const yHi = Math.max(...ys)
-  const yLo = Math.min(...ys)
-  const shakeBoth = yHi >= SHAKE_PEAK * 0.7 && yLo <= -SHAKE_PEAK * 0.7
-  if (shakeBoth && yPeak >= SHAKE_PEAK && yPeak >= xPeak * 0.75 && nearNeutral) {
+  // Shake: turn-L ↔ turn-R reciprocation, then back near neutral.
+  // True yaw needs gyro; until then y (same channel as tilt-L/R) is the proxy —
+  // hold vs oscillate are separated by stillness vs reversal.
+  const turnR = Math.max(...ys) // +y
+  const turnL = -Math.min(...ys) // magnitude of −y
+  if (
+    turnR >= SHAKE_PEAK * 0.7 &&
+    turnL >= SHAKE_PEAK * 0.7 &&
+    yPeak >= SHAKE_PEAK &&
+    yPeak >= xPeak * 0.75
+  ) {
     return 'shake'
   }
 
-  // Nod: one-sided pitch excursion then return to neutral (not a sustained hold).
-  const xHi = Math.max(...xs)
-  const xLo = Math.min(...xs)
-  const nodOneWay = xPeak >= NOD_PEAK && nearNeutral
-  const nodBoth = xHi >= NOD_PEAK * 0.45 && xLo <= -NOD_PEAK * 0.45
-  if ((nodOneWay || nodBoth) && xPeak >= yPeak && nearNeutral) {
+  // Nod: neutral ↔ tilt-F only (−x peak), then near neutral.
+  // Reject tilt-B-only and F/B reciprocation (back peak must stay small).
+  const forward = -Math.min(...xs) // magnitude of tilt-F (−x)
+  const back = Math.max(...xs) // tilt-B (+x)
+  if (
+    forward >= NOD_PEAK &&
+    back < NOD_PEAK * 0.45 &&
+    forward >= yPeak
+  ) {
     return 'nod'
   }
   return null
