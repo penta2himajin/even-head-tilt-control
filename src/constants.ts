@@ -27,6 +27,7 @@ export const HOLD_GESTURES = [
 ] as const
 export type HoldGesture = (typeof HOLD_GESTURES)[number]
 
+<<<<<<< HEAD
 /** Old persisted ids → current (bindings v1). */
 export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
   'face-L': 'tilt-L',
@@ -36,6 +37,8 @@ export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
   'turn-R': 'tilt-R',
 }
 
+=======
+>>>>>>> origin/main
 export const EXEC_COOLDOWN_MS = 150
 export const MOTION_WINDOW_MS = 1500
 
