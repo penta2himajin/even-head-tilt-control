@@ -8,8 +8,8 @@ export type ControlId = (typeof CONTROL_IDS)[number]
 export const GESTURE_TYPES = [
   'nod',
   'shake',
-  'face-L',
-  'face-R',
+  'turn-L',
+  'turn-R',
   'tilt-F',
   'tilt-B',
   'tilt-L',
@@ -18,8 +18,8 @@ export const GESTURE_TYPES = [
 export type GestureType = (typeof GESTURE_TYPES)[number]
 
 export const HOLD_GESTURES = [
-  'face-L',
-  'face-R',
+  'turn-L',
+  'turn-R',
   'tilt-F',
   'tilt-B',
   'tilt-L',
@@ -27,13 +27,27 @@ export const HOLD_GESTURES = [
 ] as const
 export type HoldGesture = (typeof HOLD_GESTURES)[number]
 
+/** Old persisted ids → current (bindings v1). */
+export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
+  'face-L': 'tilt-L',
+  'face-R': 'tilt-R',
+  // Accel y-axis was briefly named turn-* but is physical roll / tilt-L/R.
+  'turn-L': 'tilt-L',
+  'turn-R': 'tilt-R',
+}
+
 export const EXEC_COOLDOWN_MS = 150
 export const MOTION_WINDOW_MS = 1500
 
 /** Settle time inside a pose band before enter/return commits. */
 export const SETTLE_MS = 280
-/** After return-to-neutral, ignore oscillate this long. */
-export const RETURN_SUPPRESS_MS = 450
+/**
+ * Extra stillness required to enter a hold (nod/shake stay moving).
+ * Shorter than SETTLE_MS so intentional tilts stay snappy.
+ */
+export const STILL_HOLD_MS = 120
+/** After return-to-neutral, ignore oscillate briefly (offsets already cleared). */
+export const RETURN_SUPPRESS_MS = 100
 
 /**
  * G2 IMU = gravity-normalized accel (~1g). Offsets are vs dynamic neutral n̂.
@@ -51,9 +65,12 @@ export const NEUTRAL_EMA_ALPHA = 0.025
 /** Flat-desk calib: collect this many ms of samples. */
 export const FLAT_CALIB_MS = 2000
 
-/** Min peak |Δx| vs neutral for nod oscillate. */
+/** Min forward (tilt-F, −x) peak vs neutral for nod: neutral↔tilt-F only. */
 export const NOD_PEAK = 0.2
-/** Min peak |Δy| vs neutral for shake oscillate (bidirectional). */
+/**
+ * Min |peak| on each turn side for shake (turn-L↔turn-R).
+ * Accel has no yaw; lateral y is the interim proxy until gyro.
+ */
 export const SHAKE_PEAK = 0.07
 
 /** @deprecated */
@@ -79,8 +96,8 @@ export const CONTROL_LABELS: Record<ControlId, string> = {
 export const GESTURE_LABELS: Record<GestureType, string> = {
   nod: 'nod',
   shake: 'shake',
-  'face-L': 'face-L',
-  'face-R': 'face-R',
+  'turn-L': 'turn-L',
+  'turn-R': 'turn-R',
   'tilt-F': 'tilt-F',
   'tilt-B': 'tilt-B',
   'tilt-L': 'tilt-L',

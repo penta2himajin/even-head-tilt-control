@@ -1,6 +1,6 @@
 # even-head-tilt-control
 
-Even G2 plugin to test assigning head gestures (nod, shake, face turn, head tilt) to touch controls (`tap`, `dbl`, `swipe-up`, `swipe-down`).
+Even G2 plugin to test assigning head gestures (nod, shake, turn, head tilt) to touch controls (`tap`, `dbl`, `swipe-up`, `swipe-down`).
 
 Long-press a list row while performing a head gesture to bind; after release, the same gesture fires the bound control. Bindings persist via Even Hub local storage. The phone WebView mirrors bindings and control logs.
 

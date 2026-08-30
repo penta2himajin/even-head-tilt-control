@@ -1,7 +1,7 @@
 import {
   CONTROL_IDS,
   GESTURE_TYPES,
-  type ControlId,
+  LEGACY_GESTURE_MAP,
   type GestureType,
 } from './constants.ts'
 import type { BindingsMap, ImuSample, PersistedBindings } from './types.ts'
@@ -17,6 +17,14 @@ export {
   type PoseTrackerStatus,
 } from './pose-machine.ts'
 
+function normalizeGestureId(value: unknown): GestureType | null {
+  if (typeof value !== 'string') return null
+  const mapped = LEGACY_GESTURE_MAP[value] ?? value
+  return (GESTURE_TYPES as readonly string[]).includes(mapped)
+    ? (mapped as GestureType)
+    : null
+}
+
 export function parsePersisted(raw: string | null): BindingsMap {
   if (!raw) return emptyBindings()
   try {
@@ -24,8 +32,7 @@ export function parsePersisted(raw: string | null): BindingsMap {
     if (parsed.version !== 1 || !parsed.bindings) return emptyBindings()
     const out = emptyBindings()
     for (const id of CONTROL_IDS) {
-      const g = parsed.bindings[id]
-      out[id] = g && GESTURE_TYPES.includes(g) ? g : null
+      out[id] = normalizeGestureId(parsed.bindings[id])
     }
     return out
   } catch {

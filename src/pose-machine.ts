@@ -7,6 +7,7 @@ import {
   NOD_PEAK,
   RETURN_SUPPRESS_MS,
   SETTLE_MS,
+  STILL_HOLD_MS,
   SHAKE_PEAK,
   STILL_BEFORE_EMA_MS,
   STILL_EPS,
@@ -70,7 +71,6 @@ export class PoseTracker {
   private stillSince: number | null = null
   private suppressOscillateUntil = 0
   private offsets: OffsetSample[] = []
-  private lastEmitAt = 0
 
   private flatCollecting = false
   private flatStartedAt = 0
@@ -112,7 +112,7 @@ export class PoseTracker {
     return this.flatCollecting
   }
 
-  status(now = Date.now()): PoseTrackerStatus {
+  status(_now = Date.now()): PoseTrackerStatus {
     const region = this.neutral && this.lastSample
       ? classifyRegion(sub(this.lastSample, this.neutral), NEUTRAL_BAND, HOLD_ENTER)
       : 'neutral'
@@ -202,6 +202,12 @@ export class PoseTracker {
 
     const settled =
       this.candidateSince !== null && now - this.candidateSince >= SETTLE_MS
+    // Hold enter/switch needs a short stillness so a moving nod/shake cannot
+    // "settle" into tilt-* and steal the oscillate — but keep STILL_HOLD_MS
+    // short so intentional tilts stay responsive.
+    const stillSettled =
+      this.stillSince !== null && now - this.stillSince >= STILL_HOLD_MS
+    const holdEnterReady = settled && stillSettled
 
     // --- return: held → neutral ---
     if (this.phase === 'held' && region === 'neutral' && settled) {
@@ -212,8 +218,30 @@ export class PoseTracker {
       return { kind: 'return' }
     }
 
-    // --- enter: neutral → hold ---
-    if (this.phase === 'neutral' && region !== 'neutral' && region !== 'motion' && settled) {
+    // --- switch: held → different hold (e.g. tilt-L → tilt-R) without requiring
+    // a settled neutral dwell in between. Fast opposite tilts used to get stuck
+    // in the first held pose when transit through neutral was shorter than SETTLE_MS.
+    if (
+      this.phase === 'held' &&
+      this.heldGesture !== null &&
+      region !== 'neutral' &&
+      region !== 'motion' &&
+      region !== this.heldGesture &&
+      holdEnterReady
+    ) {
+      const gesture = region as HoldGesture
+      this.heldGesture = gesture
+      this.offsets = []
+      return { kind: 'enter', gesture }
+    }
+
+    // --- enter: neutral → hold (region settle + stillness) ---
+    if (
+      this.phase === 'neutral' &&
+      region !== 'neutral' &&
+      region !== 'motion' &&
+      holdEnterReady
+    ) {
       const gesture = region as HoldGesture
       this.phase = 'held'
       this.heldGesture = gesture
@@ -254,21 +282,33 @@ function detectOscillate(offsets: OffsetSample[]): 'nod' | 'shake' | null {
   const xPeak = Math.max(...xs.map((v) => Math.abs(v)))
   const yPeak = Math.max(...ys.map((v) => Math.abs(v)))
   const last = offsets[offsets.length - 1]
-  const nearNeutral = absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
+  const nearNeutral =
+    absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
+  if (!nearNeutral) return null
 
-  const yHi = Math.max(...ys)
-  const yLo = Math.min(...ys)
-  const shakeBoth = yHi >= SHAKE_PEAK * 0.7 && yLo <= -SHAKE_PEAK * 0.7
-  if (shakeBoth && yPeak >= SHAKE_PEAK && yPeak >= xPeak * 0.75 && nearNeutral) {
+  // Shake: turn-L ↔ turn-R reciprocation, then back near neutral.
+  // True yaw needs gyro; until then y (same channel as tilt-L/R) is the proxy —
+  // hold vs oscillate are separated by stillness vs reversal.
+  const turnR = Math.max(...ys) // +y
+  const turnL = -Math.min(...ys) // magnitude of −y
+  if (
+    turnR >= SHAKE_PEAK * 0.7 &&
+    turnL >= SHAKE_PEAK * 0.7 &&
+    yPeak >= SHAKE_PEAK &&
+    yPeak >= xPeak * 0.75
+  ) {
     return 'shake'
   }
 
-  // Nod: one-sided pitch excursion then return to neutral (not a sustained hold).
-  const xHi = Math.max(...xs)
-  const xLo = Math.min(...xs)
-  const nodOneWay = xPeak >= NOD_PEAK && nearNeutral
-  const nodBoth = xHi >= NOD_PEAK * 0.45 && xLo <= -NOD_PEAK * 0.45
-  if ((nodOneWay || nodBoth) && xPeak >= yPeak && nearNeutral) {
+  // Nod: neutral ↔ tilt-F only (−x peak), then near neutral.
+  // Reject tilt-B-only and F/B reciprocation (back peak must stay small).
+  const forward = -Math.min(...xs) // magnitude of tilt-F (−x)
+  const back = Math.max(...xs) // tilt-B (+x)
+  if (
+    forward >= NOD_PEAK &&
+    back < NOD_PEAK * 0.45 &&
+    forward >= yPeak
+  ) {
     return 'nod'
   }
   return null

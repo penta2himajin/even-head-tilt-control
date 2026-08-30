@@ -22,7 +22,7 @@ function seq(
 }
 
 describe('classifyBindingWindow', () => {
-  it('detects face-R hold from yaw axis', () => {
+  it('detects tilt-R hold from roll / y axis', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.2, 1],
@@ -31,10 +31,10 @@ describe('classifyBindingWindow', () => {
       [0, 0.4, 0.9],
       [0, 0.4, 0.9],
     ])
-    expect(classifyBindingWindow(samples)).toBe('face-R')
+    expect(classifyBindingWindow(samples)).toBe('tilt-R')
   })
 
-  it('detects nod from pitch return to neutral', () => {
+  it('detects nod from tilt-F round-trip to neutral', () => {
     const samples = seq([
       [0, 0, 1],
       [-0.25, 0, 0.97],
@@ -45,7 +45,29 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).toBe('nod')
   })
 
-  it('detects bidirectional shake', () => {
+  it('does not treat tilt-B round-trip as nod', () => {
+    const samples = seq([
+      [0, 0, 1],
+      [0.25, 0, 0.97],
+      [0.4, 0, 0.9],
+      [0.15, 0, 0.98],
+      [0.02, 0, 1],
+    ])
+    expect(classifyBindingWindow(samples)).not.toBe('nod')
+  })
+
+  it('does not treat tilt-F/B reciprocation as nod', () => {
+    const samples = seq([
+      [0, 0, 1],
+      [-0.35, 0, 0.9],
+      [0.35, 0, 0.9],
+      [-0.3, 0, 0.92],
+      [0.02, 0, 1],
+    ])
+    expect(classifyBindingWindow(samples)).not.toBe('nod')
+  })
+
+  it('detects shake as turn-L/R reciprocation (y proxy)', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.1, 1],
@@ -85,7 +107,7 @@ describe('classifyBindingWindow', () => {
 })
 
 describe('PoseTracker enter/return', () => {
-  it('emits face-R on enter and does not emit shake on return', () => {
+  it('emits tilt-R on enter and does not emit shake on return', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     const push = (x: number, y: number, z: number, t: number) => {
@@ -94,14 +116,138 @@ describe('PoseTracker enter/return', () => {
     }
     // settle neutral
     for (let i = 0; i < 5; i++) push(0, 0, 1, i * 100)
-    // move to face-R and hold
+    // move to tilt-R and hold
     for (let i = 0; i < 8; i++) push(0, 0.35, 0.94, 500 + i * 100)
     // return to neutral
     for (let i = 0; i < 8; i++) push(0, 0.02, 1, 1400 + i * 100)
-    expect(events).toContain('face-R')
+    expect(events).toContain('tilt-R')
     expect(events).toContain('return')
     expect(events).not.toContain('shake')
   })
+
+  it('switches held tilt-L to opposite tilt-R without a long neutral dwell', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    // settle neutral
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    // enter tilt-L (roll / y-) and hold past settle while still
+    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
+    // brief transit through near-neutral (shorter than SETTLE_MS), then opposite tilt-R
+    push(0, -0.05, 1, 80)
+    push(0, 0.02, 1, 80)
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
+
+    expect(events.filter((e) => e === 'tilt-L')).toHaveLength(1)
+    expect(events.filter((e) => e === 'tilt-R')).toHaveLength(1)
+    // Must not require a settled return between opposite holds
+    const l = events.indexOf('tilt-L')
+    const r = events.indexOf('tilt-R')
+    expect(r).toBeGreaterThan(l)
+    expect(events.slice(l + 1, r)).not.toContain('return')
+  })
+
+
+  it('detects nod soon after returning from tilt (no long return suppress)', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94) // tilt-L
+    for (let i = 0; i < 8; i++) push(0, 0, 1) // return
+    expect(events).toContain('tilt-L')
+    expect(events).toContain('return')
+    const afterReturn = t
+
+    // Nod peak + return to neutral, finishing well under the old 450ms suppress.
+    push(-0.15, 0, 0.98, 50)
+    push(-0.35, 0, 0.9, 50)
+    push(-0.4, 0.01, 0.88, 50)
+    push(-0.2, 0, 0.96, 50)
+    push(-0.05, 0, 1, 50)
+    push(0, 0, 1, 50)
+
+    expect(t - afterReturn).toBeLessThan(450)
+    expect(events).toContain('nod')
+  })
+
+  it('detects shake soon after returning from tilt', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // tilt-R
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    expect(events).toContain('tilt-R')
+    expect(events).toContain('return')
+    const afterReturn = t
+
+    push(0, 0.12, 1, 50)
+    push(0, -0.12, 1, 50)
+    push(0, 0.1, 1, 50)
+    push(0, -0.08, 1, 50)
+    push(0, 0.02, 1, 50)
+    push(0, 0, 1, 50)
+
+    expect(t - afterReturn).toBeLessThan(450)
+    expect(events).toContain('shake')
+  })
+
+  it('classifies a quick pitch dip as nod, not tilt-F enter', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    const events: string[] = []
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      const ev = tracker.push({ x, y, z, t })
+      if (ev) {
+        events.push(
+          ev.kind === 'oscillate' ? ev.gesture : ev.kind === 'enter' ? ev.gesture : 'return',
+        )
+      }
+    }
+
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    // Moving pitch excursion above HOLD_ENTER for > SETTLE_MS, then return.
+    // Without a stillness gate this becomes tilt-F; with it, nod wins.
+    const dip = [-0.2, -0.3, -0.38, -0.42, -0.4, -0.35, -0.28, -0.18, -0.08, -0.02, 0, 0]
+    for (const x of dip) push(x, 0, Math.sqrt(Math.max(0.01, 1 - x * x)))
+
+    expect(events).toContain('nod')
+    expect(events).not.toContain('tilt-F')
+  })
+
+
 })
 
 describe('persistence helpers', () => {
@@ -109,18 +255,37 @@ describe('persistence helpers', () => {
     const bindings = {
       tap: 'nod' as const,
       dbl: null,
-      'swipe-up': 'face-L' as const,
+      'swipe-up': 'tilt-L' as const,
       'swipe-down': null,
     }
     const raw = serializeBindings(bindings)
     expect(parsePersisted(raw)).toEqual(bindings)
   })
 
+
+  it('migrates legacy face-*/turn-* bindings to tilt-*', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      bindings: {
+        tap: 'nod',
+        dbl: null,
+        'swipe-up': 'face-L',
+        'swipe-down': 'turn-R',
+      },
+    })
+    expect(parsePersisted(raw)).toEqual({
+      tap: 'nod',
+      dbl: null,
+      'swipe-up': 'tilt-L',
+      'swipe-down': 'tilt-R',
+    })
+  })
+
   it('maps gesture back to control', () => {
     const bindings = {
       tap: 'nod' as const,
       dbl: null,
-      'swipe-up': 'face-L' as const,
+      'swipe-up': 'tilt-L' as const,
       'swipe-down': null,
     }
     expect(findControlForGesture(bindings, 'nod')).toBe('tap')
