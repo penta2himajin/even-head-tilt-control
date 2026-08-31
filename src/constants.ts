@@ -17,6 +17,36 @@ export const GESTURE_TYPES = [
 ] as const
 export type GestureType = (typeof GESTURE_TYPES)[number]
 
+/**
+ * Hub SDK sensing today: gravity-normalized accel only.
+ * No magnetometer / reliable gyro → yaw (heading) is unavailable.
+ * Keep yaw gesture ids in GESTURE_TYPES for forward compatibility, but do not
+ * bind or emit them until heading input exists.
+ */
+export const SENSING = {
+  accel: true,
+  /** Angular rate — not in official Hub imuData today. */
+  gyro: false,
+  /** Geomagnetic / compass — not exposed to plugins today. */
+  mag: false,
+} as const
+
+/** Gestures bindable + executable with accel-only sensing. */
+export const ASSIGNABLE_GESTURES = [
+  'nod',
+  'tilt-F',
+  'tilt-B',
+  'tilt-L',
+  'tilt-R',
+] as const
+export type AssignableGesture = (typeof ASSIGNABLE_GESTURES)[number]
+
+/**
+ * Yaw-axis gestures: reserved until gyro and/or mag reach the plugin.
+ * shake was an interim roll (y) reciprocation proxy — disabled, not deleted.
+ */
+export const YAW_PENDING_GESTURES = ['shake', 'turn-L', 'turn-R'] as const
+
 export const HOLD_GESTURES = [
   'turn-L',
   'turn-R',
@@ -27,6 +57,14 @@ export const HOLD_GESTURES = [
 ] as const
 export type HoldGesture = (typeof HOLD_GESTURES)[number]
 
+/** Hold poses that accel can classify today (no yaw turns). */
+export const ASSIGNABLE_HOLD_GESTURES = [
+  'tilt-F',
+  'tilt-B',
+  'tilt-L',
+  'tilt-R',
+] as const
+
 /** Old persisted ids → current (bindings v1). */
 export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
   'face-L': 'tilt-L',
@@ -34,6 +72,10 @@ export const LEGACY_GESTURE_MAP: Record<string, GestureType> = {
   // Accel y-axis was briefly named turn-* but is physical roll / tilt-L/R.
   'turn-L': 'tilt-L',
   'turn-R': 'tilt-R',
+}
+
+export function isAssignableGesture(value: string): value is AssignableGesture {
+  return (ASSIGNABLE_GESTURES as readonly string[]).includes(value)
 }
 
 export const EXEC_COOLDOWN_MS = 150
@@ -68,8 +110,8 @@ export const FLAT_CALIB_MS = 2000
 /** Min forward (tilt-F, −x) peak vs neutral for nod: neutral↔tilt-F only. */
 export const NOD_PEAK = 0.2
 /**
- * Min |peak| on each turn side for shake (turn-L↔turn-R).
- * Accel has no yaw; lateral y is the interim proxy until gyro.
+ * Min |peak| on each yaw side for true shake (turn-L↔turn-R).
+ * Unused while SENSING.gyro/mag are false; kept for the yaw-enabled path.
  */
 export const SHAKE_PEAK = 0.07
 

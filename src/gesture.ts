@@ -2,6 +2,7 @@ import {
   CONTROL_IDS,
   GESTURE_TYPES,
   LEGACY_GESTURE_MAP,
+  isAssignableGesture,
   type GestureType,
 } from './constants.ts'
 import type { BindingsMap, ImuSample, PersistedBindings } from './types.ts'
@@ -17,12 +18,14 @@ export {
   type PoseTrackerStatus,
 } from './pose-machine.ts'
 
+export { isAssignableGesture } from './constants.ts'
+
 function normalizeGestureId(value: unknown): GestureType | null {
   if (typeof value !== 'string') return null
   const mapped = LEGACY_GESTURE_MAP[value] ?? value
-  return (GESTURE_TYPES as readonly string[]).includes(mapped)
-    ? (mapped as GestureType)
-    : null
+  if (!(GESTURE_TYPES as readonly string[]).includes(mapped)) return null
+  // Drop yaw-pending ids (shake); legacy turn-* already remapped to tilt-*.
+  return isAssignableGesture(mapped) ? mapped : null
 }
 
 export function parsePersisted(raw: string | null): BindingsMap {

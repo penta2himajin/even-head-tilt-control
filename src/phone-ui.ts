@@ -93,7 +93,7 @@ export function createPhoneUi(
       modeEl.textContent = `Binding — hold a head gesture for ${snapshot.bindingControl}`
     } else {
       modeEl.textContent =
-        'Idle — enter=hold emit, return=silent, oscillate=nod/shake'
+        'Idle — enter=hold emit, return=silent, oscillate=nod (shake/turn yaw-pending)'
     }
 
     logEl.textContent =

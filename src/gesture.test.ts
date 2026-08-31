@@ -67,7 +67,7 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).not.toBe('nod')
   })
 
-  it('detects shake as turn-L/R reciprocation (y proxy)', () => {
+  it('does not bind yaw-pending shake (y-reciprocation proxy)', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.1, 1],
@@ -75,7 +75,7 @@ describe('classifyBindingWindow', () => {
       [0, 0.09, 1],
       [0, -0.02, 1],
     ])
-    expect(classifyBindingWindow(samples)).toBe('shake')
+    expect(classifyBindingWindow(samples)).toBeNull()
   })
 
   it('classifies real G2 nod window as nod', () => {
@@ -92,7 +92,7 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).toBe('nod')
   })
 
-  it('classifies real G2 shake window as shake', () => {
+  it('does not bind real G2 shake window while yaw is unavailable', () => {
     const samples = seq([
       [-0.08, -0.043, 0.994],
       [-0.099, 0.006, 0.983],
@@ -102,7 +102,7 @@ describe('classifyBindingWindow', () => {
       [-0.062, -0.107, 1.0],
       [-0.151, -0.054, 0.996],
     ])
-    expect(classifyBindingWindow(samples)).toBe('shake')
+    expect(classifyBindingWindow(samples)).toBeNull()
   })
 })
 
@@ -191,7 +191,7 @@ describe('PoseTracker enter/return', () => {
     expect(events).toContain('nod')
   })
 
-  it('detects shake soon after returning from tilt', () => {
+  it('does not emit yaw-pending shake after returning from tilt', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
@@ -210,7 +210,6 @@ describe('PoseTracker enter/return', () => {
     for (let i = 0; i < 8; i++) push(0, 0, 1)
     expect(events).toContain('tilt-R')
     expect(events).toContain('return')
-    const afterReturn = t
 
     push(0, 0.12, 1, 50)
     push(0, -0.12, 1, 50)
@@ -219,8 +218,7 @@ describe('PoseTracker enter/return', () => {
     push(0, 0.02, 1, 50)
     push(0, 0, 1, 50)
 
-    expect(t - afterReturn).toBeLessThan(450)
-    expect(events).toContain('shake')
+    expect(events).not.toContain('shake')
   })
 
   it('classifies a quick pitch dip as nod, not tilt-F enter', () => {
@@ -281,6 +279,25 @@ describe('persistence helpers', () => {
     })
   })
 
+  it('clears yaw-pending shake and does not keep raw turn-* as bindings', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      bindings: {
+        tap: 'shake',
+        dbl: 'turn-L',
+        'swipe-up': 'tilt-F',
+        'swipe-down': null,
+      },
+    })
+    // turn-L was briefly the roll id → migrates to tilt-L; shake is yaw-pending → cleared.
+    expect(parsePersisted(raw)).toEqual({
+      tap: null,
+      dbl: 'tilt-L',
+      'swipe-up': 'tilt-F',
+      'swipe-down': null,
+    })
+  })
+
   it('maps gesture back to control', () => {
     const bindings = {
       tap: 'nod' as const,
@@ -290,5 +307,6 @@ describe('persistence helpers', () => {
     }
     expect(findControlForGesture(bindings, 'nod')).toBe('tap')
     expect(findControlForGesture(bindings, 'shake')).toBeNull()
+    expect(findControlForGesture(bindings, 'turn-R')).toBeNull()
   })
 })

@@ -2,6 +2,7 @@ import {
   CONTROL_IDS,
   FLAT_CALIB_MS,
   HOLD_ENTER,
+  isAssignableGesture,
   NEUTRAL_BAND,
   NEUTRAL_EMA_ALPHA,
   NOD_PEAK,
@@ -55,10 +56,11 @@ interface OffsetSample {
 }
 
 /**
- * Neutral-relative pose machine:
+ * Neutral-relative pose machine (accel only — see SENSING in constants):
  * - flat calib → g₀ (gravity reference / seed)
  * - slow EMA → n̂ while still in neutral
- * - enter hold emits once; return never emits; oscillate = nod/shake
+ * - enter hold emits once; return never emits; oscillate = nod
+ * - yaw gestures (shake / turn-*) are reserved until gyro or mag is available
  */
 export class PoseTracker {
   private g0: Vec3 | null = null
@@ -286,22 +288,25 @@ function detectOscillate(offsets: OffsetSample[]): 'nod' | 'shake' | null {
     absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
   if (!nearNeutral) return null
 
-  // Shake: turn-L ↔ turn-R reciprocation, then back near neutral.
-  // True yaw needs gyro; until then y (same channel as tilt-L/R) is the proxy —
-  // hold vs oscillate are separated by stillness vs reversal.
-  const turnR = Math.max(...ys) // +y
-  const turnL = -Math.min(...ys) // magnitude of −y
-  if (
-    turnR >= SHAKE_PEAK * 0.7 &&
-    turnL >= SHAKE_PEAK * 0.7 &&
-    yPeak >= SHAKE_PEAK &&
-    yPeak >= xPeak * 0.75
-  ) {
-    return 'shake'
+  // True yaw shake needs gyro/mag. Flip when Hub exposes heading.
+  const yawShakeEnabled = false
+  if (yawShakeEnabled) {
+    const turnR = Math.max(...ys)
+    const turnL = -Math.min(...ys)
+    if (
+      turnR >= SHAKE_PEAK * 0.7 &&
+      turnL >= SHAKE_PEAK * 0.7 &&
+      yPeak >= SHAKE_PEAK &&
+      yPeak >= xPeak * 0.75
+    ) {
+      return 'shake'
+    }
   }
 
   // Nod: neutral ↔ tilt-F only (−x peak), then near neutral.
   // Reject tilt-B-only and F/B reciprocation (back peak must stay small).
+  // Differs from tilt-F hold: no settle+still in the forward band; emit on
+  // return-near-neutral after a forward peak inside MOTION_WINDOW_MS.
   const forward = -Math.min(...xs) // magnitude of tilt-F (−x)
   const back = Math.max(...xs) // tilt-B (+x)
   if (
@@ -333,19 +338,22 @@ export function classifyBindingWindow(samples: ImuSample[]): GestureType | null 
     if (ev.kind === 'oscillate') lastOsc = ev.gesture
   }
 
-  if (lastOsc) return lastOsc
-  if (lastEnter) return lastEnter
+  // Prefer oscillate, then enter; only assignable gestures may bind.
+  if (lastOsc && isAssignableGesture(lastOsc)) return lastOsc
+  if (lastEnter && isAssignableGesture(lastEnter)) return lastEnter
 
   // Fallback: end-of-window hold vs press-start neutral.
   const last = samples[samples.length - 1]
   const offset = sub(fromSample(last), seed)
-  return holdFromOffset(offset, HOLD_ENTER * 0.9)
+  const hold = holdFromOffset(offset, HOLD_ENTER * 0.9)
+  return hold && isAssignableGesture(hold) ? hold : null
 }
 
 export function findControlForGesture(
   bindings: BindingsMap,
   gesture: GestureType,
 ): ControlId | null {
+  if (!isAssignableGesture(gesture)) return null
   for (const id of CONTROL_IDS) {
     if (bindings[id] === gesture) return id
   }

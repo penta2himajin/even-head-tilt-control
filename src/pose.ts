@@ -58,7 +58,9 @@ export function meanVec(samples: Vec3[]): Vec3 {
 /**
  * Map offset-from-neutral to a hold pose using dominant axis.
  * Device rest ≈ gravity on z; pitch→x, roll (ear↔shoulder)→y.
- * True yaw turn needs gyro — not classified from accel alone.
+ *
+ * Only tilt-* are returned. turn-L/R are yaw-reserved (need gyro/mag) and are
+ * never classified from accel — see SENSING / YAW_PENDING_GESTURES.
  */
 export function holdFromOffset(offset: Vec3, enter: number): HoldGesture | null {
   const ax = Math.abs(offset.x)
