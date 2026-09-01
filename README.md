@@ -39,13 +39,14 @@ Uses [`@penta2himajin/even-deskless`](https://github.com/penta2himajin/even-desk
 
 **QR alone is not enough on a Cloud Agent.** `npm run qr` points at `127.0.0.1`, which the phone cannot reach. Use a public tunnel, then `npm run qr:tunnel`.
 
-Full steps (tunnel → QR → phone scan → glasses): **[docs/device-sideload.md](./docs/device-sideload.md)** · [日本語](./docs/device-sideload.ja.md)
-
 ```bash
-npm run dev                          # terminal 1
-bash scripts/dev-tunnel.sh           # terminal 2 — writes /tmp/cf-tunnel.log
-npm run qr:tunnel                    # terminal 3 — QR for the Cloudflare URL
+npm run dev          # terminal 1 — Vite on http://127.0.0.1:5173
+npm run qr:tunnel    # terminal 2 — Cloudflare tunnel + sideload QR (even-deskless)
 ```
+
+`qr:tunnel` delegates to [`@penta2himajin/even-deskless`](https://github.com/penta2himajin/even-deskless) (`scripts/qr-tunnel.sh`): starts or reuses a live quick tunnel, then runs `evenhub qr`. See `node_modules/@penta2himajin/even-deskless/docs/cloud-agent-qr.md` for env vars (`PORT`, `CF_TUNNEL_LOG`, …).
+
+Full steps (tunnel → QR → phone scan → glasses): **[docs/device-sideload.md](./docs/device-sideload.md)** · [日本語](./docs/device-sideload.ja.md)
 
 IMU / pose thresholds in `src/constants.ts` are starting points — tune on real glasses.
 

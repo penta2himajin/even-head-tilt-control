@@ -14,13 +14,14 @@ Even G2 向けプラグイン。頭の動き（頷き・首振り・ターン（
 
 Cloud Agent などスマホから `localhost` に届かない場合、`npm run qr` だけでは不十分です。トンネルを張ってから `npm run qr:tunnel` を使います。
 
-手順の全体（トンネル起動 → QR → スマホスキャン → グラス）: **[docs/device-sideload.ja.md](./docs/device-sideload.ja.md)** · [English](./docs/device-sideload.md)
-
 ```bash
-npm run dev                          # 端末1
-bash scripts/dev-tunnel.sh           # 端末2 — /tmp/cf-tunnel.log に記録
-npm run qr:tunnel                    # 端末3 — Cloudflare URL 向け QR
+npm run dev          # 端末1 — Vite
+npm run qr:tunnel    # 端末2 — トンネル + QR（even-deskless）
 ```
+
+`qr:tunnel` は [`@penta2himajin/even-deskless`](https://github.com/penta2himajin/even-deskless) の `scripts/qr-tunnel.sh` に委譲します。環境変数などは `node_modules/@penta2himajin/even-deskless/docs/cloud-agent-qr.md` を参照。
+
+手順の全体: **[docs/device-sideload.ja.md](./docs/device-sideload.ja.md)** · [English](./docs/device-sideload.md)
 
 ## License
 
