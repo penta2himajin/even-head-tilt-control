@@ -104,6 +104,12 @@ body {
   font-size: 0.9375rem;
 }
 
+.phone-imu-live {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b8c0d4;
+}
+
 .phone-log {
   max-height: 240px;
   overflow: auto;

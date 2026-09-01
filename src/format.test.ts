@@ -33,6 +33,7 @@ function snapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     logs: [],
     poseStatus: 'pose: —',
     statusLabel: 'neutral',
+    imuLive: null,
     ...overrides,
   }
 }

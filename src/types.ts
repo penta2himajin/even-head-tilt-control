@@ -22,6 +22,17 @@ export interface ControlLogEntry {
 
 export type AppMode = 'idle' | 'binding'
 
+export interface ImuLiveView {
+  ax: number
+  ay: number
+  az: number
+  wx: number | null
+  wy: number | null
+  wz: number | null
+  rawKeys: string[]
+  t: number
+}
+
 export interface AppSnapshot {
   bindings: BindingsMap
   focusedIndex: number
@@ -32,6 +43,8 @@ export interface AppSnapshot {
   poseStatus: string
   /** Glasses title + user-facing pose label (neutral | in-pose (tilt-F) | …) */
   statusLabel: string
+  /** Phone UI: latest IMU sample under pose (null until first report) */
+  imuLive: ImuLiveView | null
 }
 
 export function emptyBindings(): BindingsMap {
