@@ -7,8 +7,37 @@ import {
   type GestureType,
 } from './constants.ts'
 import type { BindingsMap } from './types.ts'
+import type { PoseTrackerStatus } from './gesture.ts'
 
 export { READY_MARKER }
+
+export function formatStatusLabel(status: PoseTrackerStatus): string {
+  if (status.flatCalibActive) return 'calibrating'
+  if (status.phase === 'held' && status.heldGesture) {
+    return `in-pose (${status.heldGesture})`
+  }
+  if (status.region !== 'neutral' && status.region !== 'motion') {
+    return `in-pose (${status.region})`
+  }
+  return 'neutral'
+}
+
+export function formatGlassesTitleLine(snapshot: {
+  mode: 'idle' | 'binding'
+  bindingControl: ControlId | null
+  logs: { control: ControlId }[]
+  statusLabel: string
+}): string {
+  const status = `status: ${snapshot.statusLabel}`
+  if (snapshot.mode === 'binding' && snapshot.bindingControl) {
+    return `Bind: ${snapshot.bindingControl} / ${status}`
+  }
+  const last = snapshot.logs.at(-1)
+  if (last) {
+    return `control: ${CONTROL_LABELS[last.control]} / ${status}`
+  }
+  return status
+}
 
 export function controlIdFromIndex(index: number): ControlId {
   return CONTROL_IDS[index] ?? 'tap'

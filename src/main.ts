@@ -20,7 +20,7 @@ import {
   startDebugTelemetry,
   summarizeEvenHubEvent,
 } from './debug-telemetry.ts'
-import { READY_MARKER, controlIdFromIndex } from './format.ts'
+import { READY_MARKER, controlIdFromIndex, formatStatusLabel } from './format.ts'
 import {
   PoseTracker,
   classifyBindingWindow,
@@ -100,8 +100,7 @@ function eventChannel(event: EvenHubEvent): 'glasses' | 'phone' {
   return 'phone'
 }
 
-function formatPoseStatus(tracker: PoseTracker): string {
-  const s = tracker.status()
+function formatPoseStatus(s: ReturnType<PoseTracker['status']>): string {
   if (s.flatCalibActive) return 'pose: flat calib… (keep glasses still on desk)'
   const g = s.hasG0 ? 'g0✓' : 'g0✗'
   const n = s.hasNeutral ? 'n̂✓' : 'n̂✗'
@@ -148,6 +147,7 @@ async function main() {
     bindingControl: null,
     logs: [],
     poseStatus: 'pose: —',
+    statusLabel: 'neutral',
   }
 
   const bindingSamples: ImuSample[] = []
@@ -159,7 +159,9 @@ async function main() {
   const tracker = new PoseTracker()
 
   const paint = () => {
-    snapshot.poseStatus = formatPoseStatus(tracker)
+    const status = tracker.status()
+    snapshot.poseStatus = formatPoseStatus(status)
+    snapshot.statusLabel = formatStatusLabel(status)
     phone.refresh(snapshot)
   }
 
