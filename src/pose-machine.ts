@@ -140,6 +140,27 @@ export class PoseTracker {
     return reachZone(sub(this.lastSample, ref), NEUTRAL_BAND, HOLD_ENTER)
   }
 
+  /** Debug: offsets vs g₀ and n̂ for deskless / device log inspection. */
+  telemetryForStatus(): Record<string, unknown> {
+    const sample = this.lastSample
+    const status = this.status()
+    if (!sample) return { ...status }
+    const offsetN = this.neutral ? sub(sample, this.neutral) : null
+    const offsetG0 = this.g0 ? sub(sample, this.g0) : null
+    return {
+      ...status,
+      sample: { x: sample.x, y: sample.y, z: sample.z },
+      offsetN,
+      offsetG0,
+      regionVsN: offsetN
+        ? reachZone(offsetN, NEUTRAL_BAND, HOLD_ENTER)
+        : null,
+      regionVsG0: offsetG0
+        ? reachZone(offsetG0, NEUTRAL_BAND, HOLD_ENTER)
+        : null,
+    }
+  }
+
   private snapNeutralToSample(v: Vec3): void {
     this.neutral = { ...v }
   }

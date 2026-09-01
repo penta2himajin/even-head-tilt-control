@@ -158,10 +158,44 @@ async function main() {
   let hubRef: EvenAppBridge | null = null
   const tracker = new PoseTracker()
 
-  const paint = () => {
+  const phone = createPhoneUi(root, {
+    onSelectIndex: (index) => {
+      void setFocusedIndex(hubRef, index, 'phone')
+    },
+    onStartFlatCalib: () => {
+      tracker.startFlatCalib()
+      debugSend('app', 'flat_calib_start', {})
+      console.info('[head-tilt] flat calib start — place glasses on a flat surface')
+      paint(hubRef)
+    },
+  })
+
+  const refreshGlassesTitle = async (hub: EvenAppBridge) => {
+    try {
+      await hub.textContainerUpgrade(buildTitleUpgrade(snapshot))
+    } catch (err) {
+      debugSend('glasses', 'title_upgrade_error', { err: String(err) })
+    }
+  }
+
+  const syncPoseStatus = (hub: EvenAppBridge | null): boolean => {
     const status = tracker.status()
     snapshot.poseStatus = formatPoseStatus(status)
-    snapshot.statusLabel = formatStatusLabel(status)
+    const nextLabel = formatStatusLabel(status)
+    const changed = nextLabel !== snapshot.statusLabel
+    if (changed) {
+      snapshot.statusLabel = nextLabel
+      debugSend('app', 'pose_status', {
+        label: nextLabel,
+        ...tracker.telemetryForStatus(),
+      })
+      if (hub) void refreshGlassesTitle(hub)
+    }
+    return changed
+  }
+
+  const paint = (hub: EvenAppBridge | null = null) => {
+    syncPoseStatus(hub)
     phone.refresh(snapshot)
   }
 
@@ -198,21 +232,9 @@ async function main() {
     if (next === snapshot.focusedIndex) return
     snapshot.focusedIndex = next
     debugSend('glasses', 'focus', { index: next, via })
-    paint()
+    paint(hub)
     if (hub) await refreshGlassesText(hub)
   }
-
-  const phone = createPhoneUi(root, {
-    onSelectIndex: (index) => {
-      void setFocusedIndex(hubRef, index, 'phone')
-    },
-    onStartFlatCalib: () => {
-      tracker.startFlatCalib()
-      debugSend('app', 'flat_calib_start', {})
-      console.info('[head-tilt] flat calib start — place glasses on a flat surface')
-      paint()
-    },
-  })
 
   const emitControl = async (
     hub: EvenAppBridge,
@@ -225,7 +247,7 @@ async function main() {
     const suffix = via === 'gesture' ? 'via' : 'temple'
     console.info(`[control] ${control} ${suffix} ${gesture}`)
     debugSend('app', 'control', { control, gesture, via })
-    paint()
+    paint(hub)
     await rebuildGlasses(hub)
   }
 
@@ -240,7 +262,7 @@ async function main() {
         console.info('[head-tilt] flat calib done')
         debugSend('app', 'flat_calib_done', tracker.getGravityCalib())
       }
-      paint()
+      paint(hub)
       return
     }
 
@@ -250,22 +272,23 @@ async function main() {
     }
 
     const transition = tracker.push(sample)
+    const statusChanged = syncPoseStatus(hub)
     if (!transition) {
-      if (sample.t % 500 < 120) paint()
+      if (statusChanged || sample.t % 500 < 120) phone.refresh(snapshot)
       return
     }
 
     debugSend('glasses', 'pose_transition', transition)
 
     if (transition.kind === 'return') {
-      paint()
+      paint(hub)
       return
     }
 
     const gesture: GestureType = transition.gesture
     const now = sample.t
     if (now - lastControlAt < EXEC_COOLDOWN_MS) {
-      paint()
+      paint(hub)
       return
     }
     const control = findControlForGesture(snapshot.bindings, gesture)
@@ -274,7 +297,7 @@ async function main() {
       await emitControl(hub, control, gesture, 'gesture')
     } else {
       debugSend('glasses', 'pose_unbound', { gesture, transition: transition.kind })
-      paint()
+      paint(hub)
     }
   }
 
@@ -291,7 +314,7 @@ async function main() {
     debugSend('glasses', 'imu_control', { open: false })
   }
 
-  paint()
+  paint(null)
 
   const hasHost = await waitForHost()
   debugSend('app', 'host_wait', { hasHost })
@@ -329,7 +352,7 @@ async function main() {
     debugSend('app', 'calib_loaded', calib)
   }
   debugSend('app', 'bindings_loaded', snapshot.bindings)
-  paint()
+  paint(hub)
 
   await hub.createStartUpPageContainer(buildStartupPage(snapshot))
   console.info(READY_MARKER)
@@ -382,7 +405,7 @@ async function main() {
           control: snapshot.bindingControl,
           focusedIndex: snapshot.focusedIndex,
         })
-        paint()
+        paint(hub)
         await refreshGlassesText(hub)
         return
       }
@@ -407,7 +430,7 @@ async function main() {
         snapshot.bindingControl = null
         bindingSamples.length = 0
         tracker.softReset()
-        paint()
+        paint(hub)
         await refreshGlassesText(hub)
         return
       }
