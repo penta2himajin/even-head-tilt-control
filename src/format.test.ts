@@ -49,6 +49,14 @@ describe('formatStatusLabel', () => {
     ).toBe('in-pose (tilt-F)')
   })
 
+  it('returns neutral when region is upright even if hold phase is not cleared', () => {
+    expect(
+      formatStatusLabel(
+        poseStatus({ phase: 'held', heldGesture: 'tilt-F', region: 'neutral' }),
+      ),
+    ).toBe('neutral')
+  })
+
   it('returns in-pose from region while reaching before hold commits', () => {
     expect(formatStatusLabel(poseStatus({ region: 'tilt-R' }))).toBe(
       'in-pose (tilt-R)',
@@ -65,7 +73,7 @@ describe('formatGlassesTitleLine', () => {
           logs: [{ at: 0, control: 'tap', gesture: 'nod' }],
         }),
       ),
-    ).toBe('control: tap / status: neutral')
+    ).toBe('control: tap        / status: neutral')
   })
 
   it('shows in-pose status while held', () => {
@@ -76,7 +84,23 @@ describe('formatGlassesTitleLine', () => {
           logs: [{ at: 0, control: 'tap', gesture: 'tilt-F' }],
         }),
       ),
-    ).toBe('control: tap / status: in-pose (tilt-F)')
+    ).toBe('control: tap        / status: in-pose (tilt-F)')
+  })
+
+  it('keeps status at a fixed column for different controls', () => {
+    const tap = formatGlassesTitleLine(
+      snapshot({
+        statusLabel: 'neutral',
+        logs: [{ at: 0, control: 'tap', gesture: 'nod' }],
+      }),
+    )
+    const swipe = formatGlassesTitleLine(
+      snapshot({
+        statusLabel: 'neutral',
+        logs: [{ at: 0, control: 'swipe-down', gesture: 'tilt-L' }],
+      }),
+    )
+    expect(tap.indexOf('status:')).toBe(swipe.indexOf('status:'))
   })
 
   it('shows bind mode with status', () => {
@@ -88,12 +112,12 @@ describe('formatGlassesTitleLine', () => {
           statusLabel: 'neutral',
         }),
       ),
-    ).toBe('Bind: dbl / status: neutral')
+    ).toBe('Bind: dbl        / status: neutral')
   })
 
-  it('shows status only before any control', () => {
+  it('shows padded control slot before any fire', () => {
     expect(formatGlassesTitleLine(snapshot({ statusLabel: 'neutral' }))).toBe(
-      'status: neutral',
+      'control: —          / status: neutral',
     )
   })
 })

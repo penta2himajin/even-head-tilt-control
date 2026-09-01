@@ -11,11 +11,16 @@ import type { PoseTrackerStatus } from './gesture.ts'
 
 export { READY_MARKER }
 
+/** Pad control / bind id so `status:` stays at a fixed column on the glasses title. */
+export const GLASSES_TITLE_FIELD_WIDTH = 10
+
+function padTitleField(label: string): string {
+  return label.padEnd(GLASSES_TITLE_FIELD_WIDTH)
+}
+
+/** Live pose for the title — uses current region, not committed hold phase. */
 export function formatStatusLabel(status: PoseTrackerStatus): string {
   if (status.flatCalibActive) return 'calibrating'
-  if (status.phase === 'held' && status.heldGesture) {
-    return `in-pose (${status.heldGesture})`
-  }
   if (status.region !== 'neutral' && status.region !== 'motion') {
     return `in-pose (${status.region})`
   }
@@ -30,13 +35,11 @@ export function formatGlassesTitleLine(snapshot: {
 }): string {
   const status = `status: ${snapshot.statusLabel}`
   if (snapshot.mode === 'binding' && snapshot.bindingControl) {
-    return `Bind: ${snapshot.bindingControl} / ${status}`
+    return `Bind: ${padTitleField(snapshot.bindingControl)} / ${status}`
   }
   const last = snapshot.logs.at(-1)
-  if (last) {
-    return `control: ${CONTROL_LABELS[last.control]} / ${status}`
-  }
-  return status
+  const control = last ? CONTROL_LABELS[last.control] : '—'
+  return `control: ${padTitleField(control)} / ${status}`
 }
 
 export function controlIdFromIndex(index: number): ControlId {
