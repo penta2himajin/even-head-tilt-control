@@ -28,8 +28,10 @@ export interface AppSnapshot {
   mode: AppMode
   bindingControl: ControlId | null
   logs: ControlLogEntry[]
-  /** Phone UI: pose / calib status line */
+  /** Phone UI: pose / calib debug line */
   poseStatus: string
+  /** Glasses title + user-facing pose label (neutral | in-pose (tilt-F) | …) */
+  statusLabel: string
 }
 
 export function emptyBindings(): BindingsMap {

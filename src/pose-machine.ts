@@ -2,30 +2,30 @@ import {
   CONTROL_IDS,
   FLAT_CALIB_MS,
   HOLD_ENTER,
+  isAssignableGesture,
   NEUTRAL_BAND,
   NEUTRAL_EMA_ALPHA,
   NOD_PEAK,
+  REACH_WINDOW_MS,
   RETURN_SUPPRESS_MS,
   SETTLE_MS,
-  STILL_HOLD_MS,
-  SHAKE_PEAK,
   STILL_BEFORE_EMA_MS,
   STILL_EPS,
-  MOTION_WINDOW_MS,
   type ControlId,
   type GestureType,
   type HoldGesture,
 } from './constants.ts'
 import {
   absMax,
-  classifyRegion,
   dist,
   fromSample,
   holdFromOffset,
   meanVec,
+  reachZone,
   sub,
   type GravityCalib,
   type PoseRegion,
+  type ReachZone,
   type Vec3,
 } from './pose.ts'
 import type { BindingsMap, ImuSample } from './types.ts'
@@ -47,30 +47,37 @@ export interface PoseTrackerStatus {
   suppressOscillateUntil: number
 }
 
-interface OffsetSample {
-  t: number
-  dx: number
-  dy: number
-  dz: number
+function isHoldZone(zone: ReachZone): zone is HoldGesture {
+  return zone !== 'neutral' && zone !== 'motion'
 }
 
 /**
- * Neutral-relative pose machine:
- * - flat calib → g₀ (gravity reference / seed)
- * - slow EMA → n̂ while still in neutral
- * - enter hold emits once; return never emits; oscillate = nod/shake
+ * Neutral-relative pose machine (accel only — see SENSING in constants):
+ * - flat calib → g₀; slow EMA → n̂ while still in neutral
+ * - reach edge opens a window (REACH_WINDOW_MS)
+ *   - neutral return inside window → oscillate (tilt-F → nod)
+ *   - still at reach when window ends → hold (enter)
+ * - held → neutral (settled) → return (silent)
  */
 export class PoseTracker {
   private g0: Vec3 | null = null
   private neutral: Vec3 | null = null
   private phase: PosePhase = 'neutral'
   private heldGesture: HoldGesture | null = null
-  private candidate: PoseRegion = 'neutral'
-  private candidateSince: number | null = null
   private lastSample: Vec3 | null = null
   private stillSince: number | null = null
   private suppressOscillateUntil = 0
-  private offsets: OffsetSample[] = []
+  private lastZone: ReachZone = 'neutral'
+  private neutralSince: number | null = null
+
+  private windowStart: number | null = null
+  private windowGesture: HoldGesture | null = null
+  private windowMaxForward = 0
+  private windowMaxBack = 0
+  private windowMaxY = 0
+
+  private switchStart: number | null = null
+  private switchGesture: HoldGesture | null = null
 
   private flatCollecting = false
   private flatStartedAt = 0
@@ -113,9 +120,7 @@ export class PoseTracker {
   }
 
   status(_now = Date.now()): PoseTrackerStatus {
-    const region = this.neutral && this.lastSample
-      ? classifyRegion(sub(this.lastSample, this.neutral), NEUTRAL_BAND, HOLD_ENTER)
-      : 'neutral'
+    const region = this.displayRegion()
     return {
       phase: this.phase,
       region,
@@ -125,6 +130,39 @@ export class PoseTracker {
       flatCalibActive: this.flatCollecting,
       suppressOscillateUntil: this.suppressOscillateUntil,
     }
+  }
+
+  /** Title / debug region: g₀ when calibrated, else n̂ (not EMA-drifted mid-gesture). */
+  private displayRegion(): PoseRegion {
+    if (!this.lastSample) return 'neutral'
+    const ref = this.g0 ?? this.neutral
+    if (!ref) return 'neutral'
+    return reachZone(sub(this.lastSample, ref), NEUTRAL_BAND, HOLD_ENTER)
+  }
+
+  /** Debug: offsets vs g₀ and n̂ for deskless / device log inspection. */
+  telemetryForStatus(): Record<string, unknown> {
+    const sample = this.lastSample
+    const status = this.status()
+    if (!sample) return { ...status }
+    const offsetN = this.neutral ? sub(sample, this.neutral) : null
+    const offsetG0 = this.g0 ? sub(sample, this.g0) : null
+    return {
+      ...status,
+      sample: { x: sample.x, y: sample.y, z: sample.z },
+      offsetN,
+      offsetG0,
+      regionVsN: offsetN
+        ? reachZone(offsetN, NEUTRAL_BAND, HOLD_ENTER)
+        : null,
+      regionVsG0: offsetG0
+        ? reachZone(offsetG0, NEUTRAL_BAND, HOLD_ENTER)
+        : null,
+    }
+  }
+
+  private snapNeutralToSample(v: Vec3): void {
+    this.neutral = { ...v }
   }
 
   /**
@@ -141,18 +179,13 @@ export class PoseTracker {
         this.neutral = { ...this.g0 }
         this.flatCollecting = false
         this.flatBuf = []
-        this.phase = 'neutral'
-        this.heldGesture = null
-        this.candidate = 'neutral'
-        this.candidateSince = null
-        this.offsets = []
+        this.resetRuntime()
       }
       this.lastSample = v
       return null
     }
 
     if (!this.neutral) {
-      // Fallback: first still moments seed provisional neutral.
       this.neutral = { ...v }
       this.lastSample = v
       this.stillSince = now
@@ -160,13 +193,7 @@ export class PoseTracker {
     }
 
     const offset = sub(v, this.neutral)
-    this.offsets.push({ t: now, dx: offset.x, dy: offset.y, dz: offset.z })
-    const cutoff = now - MOTION_WINDOW_MS
-    while (this.offsets.length > 0 && this.offsets[0].t < cutoff) {
-      this.offsets.shift()
-    }
 
-    // Stillness for EMA (neutral only).
     if (this.lastSample) {
       const step = dist(v, this.lastSample)
       if (step <= STILL_EPS) {
@@ -177,9 +204,19 @@ export class PoseTracker {
     }
     this.lastSample = v
 
+    const zone = reachZone(offset, NEUTRAL_BAND, HOLD_ENTER)
+    if (zone === 'neutral') {
+      this.neutralSince = this.neutralSince ?? now
+    } else {
+      this.neutralSince = null
+    }
+
+    // n̂ EMA only while truly in the neutral band — never creep during poses.
     if (
       this.allowEma &&
       this.phase === 'neutral' &&
+      this.windowStart === null &&
+      zone === 'neutral' &&
       this.stillSince !== null &&
       now - this.stillSince >= STILL_BEFORE_EMA_MS &&
       absMax(offset) <= NEUTRAL_BAND
@@ -192,126 +229,166 @@ export class PoseTracker {
       }
     }
 
-    const region = classifyRegion(offset, NEUTRAL_BAND, HOLD_ENTER)
+    let transition: PoseTransition | null = null
 
-    // Candidate settle tracking.
-    if (region !== this.candidate) {
-      this.candidate = region
-      this.candidateSince = now
+    if (this.phase === 'held' && this.heldGesture !== null) {
+      transition = this.handleHeldPhase(zone, now, v)
+    } else if (this.phase === 'neutral') {
+      transition = this.handleNeutralPhase(zone, now, offset, v)
     }
 
-    const settled =
-      this.candidateSince !== null && now - this.candidateSince >= SETTLE_MS
-    // Hold enter/switch needs a short stillness so a moving nod/shake cannot
-    // "settle" into tilt-* and steal the oscillate — but keep STILL_HOLD_MS
-    // short so intentional tilts stay responsive.
-    const stillSettled =
-      this.stillSince !== null && now - this.stillSince >= STILL_HOLD_MS
-    const holdEnterReady = settled && stillSettled
+    this.lastZone = zone
+    return transition
+  }
 
-    // --- return: held → neutral ---
-    if (this.phase === 'held' && region === 'neutral' && settled) {
-      this.phase = 'neutral'
-      this.heldGesture = null
-      this.suppressOscillateUntil = now + RETURN_SUPPRESS_MS
-      this.offsets = []
-      return { kind: 'return' }
+  /**
+   * End of a binding sample stream: if still at reach inside an open window,
+   * commit hold (window did not expire naturally before release).
+   */
+  flushReachWindow(sample: ImuSample): PoseTransition | null {
+    if (this.windowStart === null || !this.neutral) return null
+    const zone = reachZone(sub(fromSample(sample), this.neutral), NEUTRAL_BAND, HOLD_ENTER)
+    if (!isHoldZone(zone) || zone !== this.windowGesture) {
+      this.closeReachWindow()
+      return null
+    }
+    const gesture = zone
+    this.closeReachWindow()
+    this.phase = 'held'
+    this.heldGesture = gesture
+    return { kind: 'enter', gesture }
+  }
+
+  softReset(): void {
+    this.resetRuntime()
+  }
+
+  private resetRuntime(): void {
+    this.phase = 'neutral'
+    this.heldGesture = null
+    this.closeReachWindow()
+    this.switchStart = null
+    this.switchGesture = null
+    this.suppressOscillateUntil = 0
+    this.stillSince = null
+    this.lastZone = 'neutral'
+    this.neutralSince = null
+  }
+
+  private closeReachWindow(): void {
+    this.windowStart = null
+    this.windowGesture = null
+    this.windowMaxForward = 0
+    this.windowMaxBack = 0
+    this.windowMaxY = 0
+  }
+
+  private trackWindowPeaks(offset: Vec3): void {
+    const forward = -Math.min(0, offset.x)
+    const back = Math.max(0, offset.x)
+    const yPeak = Math.abs(offset.y)
+    this.windowMaxForward = Math.max(this.windowMaxForward, forward)
+    this.windowMaxBack = Math.max(this.windowMaxBack, back)
+    this.windowMaxY = Math.max(this.windowMaxY, yPeak)
+  }
+
+  private nodOscillateAllowed(): boolean {
+    return (
+      this.windowMaxForward >= NOD_PEAK &&
+      this.windowMaxBack < NOD_PEAK * 0.45 &&
+      this.windowMaxForward >= this.windowMaxY
+    )
+  }
+
+  private handleNeutralPhase(
+    zone: ReachZone,
+    now: number,
+    offset: Vec3,
+    v: Vec3,
+  ): PoseTransition | null {
+    if (this.windowStart === null) {
+      if (
+        now >= this.suppressOscillateUntil &&
+        isHoldZone(zone) &&
+        !isHoldZone(this.lastZone)
+      ) {
+        this.windowStart = now
+        this.windowGesture = zone
+        this.windowMaxForward = 0
+        this.windowMaxBack = 0
+        this.windowMaxY = 0
+        this.trackWindowPeaks(offset)
+      }
+      return null
     }
 
-    // --- switch: held → different hold (e.g. tilt-L → tilt-R) without requiring
-    // a settled neutral dwell in between. Fast opposite tilts used to get stuck
-    // in the first held pose when transit through neutral was shorter than SETTLE_MS.
-    if (
-      this.phase === 'held' &&
-      this.heldGesture !== null &&
-      region !== 'neutral' &&
-      region !== 'motion' &&
-      region !== this.heldGesture &&
-      holdEnterReady
-    ) {
-      const gesture = region as HoldGesture
-      this.heldGesture = gesture
-      this.offsets = []
-      return { kind: 'enter', gesture }
+    const gesture = this.windowGesture!
+    if (zone === 'neutral') {
+      const osc =
+        gesture === 'tilt-F' && this.nodOscillateAllowed()
+          ? ('nod' as const)
+          : null
+      this.closeReachWindow()
+      if (osc) this.snapNeutralToSample(v)
+      return osc ? { kind: 'oscillate', gesture: osc } : null
     }
 
-    // --- enter: neutral → hold (region settle + stillness) ---
-    if (
-      this.phase === 'neutral' &&
-      region !== 'neutral' &&
-      region !== 'motion' &&
-      holdEnterReady
-    ) {
-      const gesture = region as HoldGesture
+    this.trackWindowPeaks(offset)
+
+    if (now - this.windowStart >= REACH_WINDOW_MS && zone === gesture) {
+      this.closeReachWindow()
       this.phase = 'held'
       this.heldGesture = gesture
-      this.offsets = []
       return { kind: 'enter', gesture }
     }
 
-    // --- oscillate while not held (and not in return suppress) ---
-    if (this.phase === 'neutral' && now >= this.suppressOscillateUntil) {
-      const osc = detectOscillate(this.offsets)
-      if (osc) {
-        this.offsets = []
-        this.candidate = 'neutral'
-        this.candidateSince = now
-        return { kind: 'oscillate', gesture: osc }
-      }
+    if (isHoldZone(zone) && zone !== gesture) {
+      this.windowStart = now
+      this.windowGesture = zone
+      // Keep peak stats across in-window axis changes (reject F/B reciprocation nod).
     }
 
     return null
   }
 
-  /** Reset runtime pose (keep g₀ / n̂). */
-  softReset(): void {
-    this.phase = 'neutral'
-    this.heldGesture = null
-    this.candidate = 'neutral'
-    this.candidateSince = null
-    this.offsets = []
-    this.suppressOscillateUntil = 0
-    this.stillSince = null
-  }
-}
+  private handleHeldPhase(zone: ReachZone, now: number, v: Vec3): PoseTransition | null {
+    const held = this.heldGesture!
 
-function detectOscillate(offsets: OffsetSample[]): 'nod' | 'shake' | null {
-  if (offsets.length < 4) return null
-  const xs = offsets.map((o) => o.dx)
-  const ys = offsets.map((o) => o.dy)
-  const xPeak = Math.max(...xs.map((v) => Math.abs(v)))
-  const yPeak = Math.max(...ys.map((v) => Math.abs(v)))
-  const last = offsets[offsets.length - 1]
-  const nearNeutral =
-    absMax({ x: last.dx, y: last.dy, z: last.dz }) <= NEUTRAL_BAND * 1.25
-  if (!nearNeutral) return null
+    if (isHoldZone(zone) && zone !== held) {
+      if (this.switchGesture !== zone) {
+        this.switchStart = now
+        this.switchGesture = zone
+      } else if (
+        this.switchStart !== null &&
+        now - this.switchStart >= REACH_WINDOW_MS &&
+        zone === this.switchGesture
+      ) {
+        this.switchStart = null
+        this.switchGesture = null
+        this.heldGesture = zone
+        return { kind: 'enter', gesture: zone }
+      }
+    } else if (!isHoldZone(zone)) {
+      this.switchStart = null
+      this.switchGesture = null
+    }
 
-  // Shake: turn-L ↔ turn-R reciprocation, then back near neutral.
-  // True yaw needs gyro; until then y (same channel as tilt-L/R) is the proxy —
-  // hold vs oscillate are separated by stillness vs reversal.
-  const turnR = Math.max(...ys) // +y
-  const turnL = -Math.min(...ys) // magnitude of −y
-  if (
-    turnR >= SHAKE_PEAK * 0.7 &&
-    turnL >= SHAKE_PEAK * 0.7 &&
-    yPeak >= SHAKE_PEAK &&
-    yPeak >= xPeak * 0.75
-  ) {
-    return 'shake'
-  }
+    if (
+      zone === 'neutral' &&
+      this.neutralSince !== null &&
+      now - this.neutralSince >= SETTLE_MS
+    ) {
+      this.phase = 'neutral'
+      this.heldGesture = null
+      this.switchStart = null
+      this.switchGesture = null
+      this.snapNeutralToSample(v)
+      this.suppressOscillateUntil = now + RETURN_SUPPRESS_MS
+      return { kind: 'return' }
+    }
 
-  // Nod: neutral ↔ tilt-F only (−x peak), then near neutral.
-  // Reject tilt-B-only and F/B reciprocation (back peak must stay small).
-  const forward = -Math.min(...xs) // magnitude of tilt-F (−x)
-  const back = Math.max(...xs) // tilt-B (+x)
-  if (
-    forward >= NOD_PEAK &&
-    back < NOD_PEAK * 0.45 &&
-    forward >= yPeak
-  ) {
-    return 'nod'
+    return null
   }
-  return null
 }
 
 /** Classify a binding long-press window with a frozen local neutral. */
@@ -319,7 +396,6 @@ export function classifyBindingWindow(samples: ImuSample[]): GestureType | null 
   if (samples.length === 0) return null
   const tracker = new PoseTracker()
   tracker.allowEma = false
-  // Seed from the pose at press start only (not the motion that follows).
   const seed = fromSample(samples[0])
   tracker.loadCalib({ g0: seed, at: samples[0].t })
 
@@ -333,19 +409,24 @@ export function classifyBindingWindow(samples: ImuSample[]): GestureType | null 
     if (ev.kind === 'oscillate') lastOsc = ev.gesture
   }
 
-  if (lastOsc) return lastOsc
-  if (lastEnter) return lastEnter
+  const flushed = tracker.flushReachWindow(samples[samples.length - 1])
+  if (flushed?.kind === 'enter') lastEnter = flushed.gesture
+  if (flushed?.kind === 'oscillate') lastOsc = flushed.gesture
 
-  // Fallback: end-of-window hold vs press-start neutral.
+  if (lastOsc && isAssignableGesture(lastOsc)) return lastOsc
+  if (lastEnter && isAssignableGesture(lastEnter)) return lastEnter
+
   const last = samples[samples.length - 1]
   const offset = sub(fromSample(last), seed)
-  return holdFromOffset(offset, HOLD_ENTER * 0.9)
+  const hold = holdFromOffset(offset, HOLD_ENTER * 0.9)
+  return hold && isAssignableGesture(hold) ? hold : null
 }
 
 export function findControlForGesture(
   bindings: BindingsMap,
   gesture: GestureType,
 ): ControlId | null {
+  if (!isAssignableGesture(gesture)) return null
   for (const id of CONTROL_IDS) {
     if (bindings[id] === gesture) return id
   }

@@ -7,8 +7,39 @@ import {
   type GestureType,
 } from './constants.ts'
 import type { BindingsMap } from './types.ts'
+import type { PoseTrackerStatus } from './gesture.ts'
 
 export { READY_MARKER }
+
+/** Left segment width anchored on the longest control id (`swipe-down`). */
+export const GLASSES_TITLE_LEFT_ANCHOR = `control: ${CONTROL_LABELS['swipe-down']}`
+
+function padTitleLeft(left: string): string {
+  return left.padEnd(GLASSES_TITLE_LEFT_ANCHOR.length)
+}
+
+/** Live pose for the title — uses current region, not committed hold phase. */
+export function formatStatusLabel(status: PoseTrackerStatus): string {
+  if (status.flatCalibActive) return 'calibrating'
+  if (status.region !== 'neutral' && status.region !== 'motion') {
+    return `in-pose (${status.region})`
+  }
+  return 'neutral'
+}
+
+export function formatGlassesTitleLine(snapshot: {
+  mode: 'idle' | 'binding'
+  bindingControl: ControlId | null
+  logs: { control: ControlId }[]
+  statusLabel: string
+}): string {
+  const status = `status: ${snapshot.statusLabel}`
+  const left =
+    snapshot.mode === 'binding' && snapshot.bindingControl
+      ? `Bind: ${snapshot.bindingControl}`
+      : `control: ${snapshot.logs.at(-1) ? CONTROL_LABELS[snapshot.logs.at(-1)!.control] : '—'}`
+  return `${padTitleLeft(left)} / ${status}`
+}
 
 export function controlIdFromIndex(index: number): ControlId {
   return CONTROL_IDS[index] ?? 'tap'

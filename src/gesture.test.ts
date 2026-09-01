@@ -67,7 +67,7 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).not.toBe('nod')
   })
 
-  it('detects shake as turn-L/R reciprocation (y proxy)', () => {
+  it('does not bind yaw-pending shake (y-reciprocation proxy)', () => {
     const samples = seq([
       [0, 0, 1],
       [0, 0.1, 1],
@@ -75,7 +75,7 @@ describe('classifyBindingWindow', () => {
       [0, 0.09, 1],
       [0, -0.02, 1],
     ])
-    expect(classifyBindingWindow(samples)).toBe('shake')
+    expect(classifyBindingWindow(samples)).toBeNull()
   })
 
   it('classifies real G2 nod window as nod', () => {
@@ -92,7 +92,7 @@ describe('classifyBindingWindow', () => {
     expect(classifyBindingWindow(samples)).toBe('nod')
   })
 
-  it('classifies real G2 shake window as shake', () => {
+  it('does not bind real G2 shake window while yaw is unavailable', () => {
     const samples = seq([
       [-0.08, -0.043, 0.994],
       [-0.099, 0.006, 0.983],
@@ -102,7 +102,7 @@ describe('classifyBindingWindow', () => {
       [-0.062, -0.107, 1.0],
       [-0.151, -0.054, 0.996],
     ])
-    expect(classifyBindingWindow(samples)).toBe('shake')
+    expect(classifyBindingWindow(samples)).toBeNull()
   })
 })
 
@@ -116,8 +116,8 @@ describe('PoseTracker enter/return', () => {
     }
     // settle neutral
     for (let i = 0; i < 5; i++) push(0, 0, 1, i * 100)
-    // move to tilt-R and hold
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94, 500 + i * 100)
+    // move to tilt-R and hold past REACH_WINDOW_MS
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94, 500 + i * 100)
     // return to neutral
     for (let i = 0; i < 8; i++) push(0, 0.02, 1, 1400 + i * 100)
     expect(events).toContain('tilt-R')
@@ -141,12 +141,12 @@ describe('PoseTracker enter/return', () => {
 
     // settle neutral
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // enter tilt-L (roll / y-) and hold past settle while still
-    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
+    // enter tilt-L (roll / y-) and hold past REACH_WINDOW_MS
+    for (let i = 0; i < 14; i++) push(0, -0.35, 0.94)
     // brief transit through near-neutral (shorter than SETTLE_MS), then opposite tilt-R
     push(0, -0.05, 1, 80)
     push(0, 0.02, 1, 80)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94)
 
     expect(events.filter((e) => e === 'tilt-L')).toHaveLength(1)
     expect(events.filter((e) => e === 'tilt-R')).toHaveLength(1)
@@ -173,7 +173,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94) // tilt-L
+    for (let i = 0; i < 14; i++) push(0, -0.35, 0.94) // tilt-L
     for (let i = 0; i < 8; i++) push(0, 0, 1) // return
     expect(events).toContain('tilt-L')
     expect(events).toContain('return')
@@ -191,7 +191,7 @@ describe('PoseTracker enter/return', () => {
     expect(events).toContain('nod')
   })
 
-  it('detects shake soon after returning from tilt', () => {
+  it('does not emit yaw-pending shake after returning from tilt', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
@@ -206,11 +206,10 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // tilt-R
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94) // tilt-R
     for (let i = 0; i < 8; i++) push(0, 0, 1)
     expect(events).toContain('tilt-R')
     expect(events).toContain('return')
-    const afterReturn = t
 
     push(0, 0.12, 1, 50)
     push(0, -0.12, 1, 50)
@@ -219,15 +218,28 @@ describe('PoseTracker enter/return', () => {
     push(0, 0.02, 1, 50)
     push(0, 0, 1, 50)
 
-    expect(t - afterReturn).toBeLessThan(450)
-    expect(events).toContain('shake')
+    expect(events).not.toContain('shake')
+  })
+
+  it('reports neutral display region vs g0 after returning upright from tilt', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      tracker.push({ x, y, z, t })
+    }
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94)
+    expect(tracker.status().region).toBe('tilt-R')
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    expect(tracker.status().region).toBe('neutral')
   })
 
   it('classifies a quick pitch dip as nod, not tilt-F enter', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
-    const push = (x: number, y: number, z: number, step = 50) => {
+    const push = (x: number, y: number, z: number, step = 20) => {
       t += step
       const ev = tracker.push({ x, y, z, t })
       if (ev) {
@@ -238,8 +250,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // Moving pitch excursion above HOLD_ENTER for > SETTLE_MS, then return.
-    // Without a stillness gate this becomes tilt-F; with it, nod wins.
+    // Return to neutral within REACH_WINDOW_MS (200ms) after reach so nod wins over hold.
     const dip = [-0.2, -0.3, -0.38, -0.42, -0.4, -0.35, -0.28, -0.18, -0.08, -0.02, 0, 0]
     for (const x of dip) push(x, 0, Math.sqrt(Math.max(0.01, 1 - x * x)))
 
@@ -281,6 +292,25 @@ describe('persistence helpers', () => {
     })
   })
 
+  it('clears yaw-pending shake and does not keep raw turn-* as bindings', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      bindings: {
+        tap: 'shake',
+        dbl: 'turn-L',
+        'swipe-up': 'tilt-F',
+        'swipe-down': null,
+      },
+    })
+    // turn-L was briefly the roll id → migrates to tilt-L; shake is yaw-pending → cleared.
+    expect(parsePersisted(raw)).toEqual({
+      tap: null,
+      dbl: 'tilt-L',
+      'swipe-up': 'tilt-F',
+      'swipe-down': null,
+    })
+  })
+
   it('maps gesture back to control', () => {
     const bindings = {
       tap: 'nod' as const,
@@ -290,5 +320,6 @@ describe('persistence helpers', () => {
     }
     expect(findControlForGesture(bindings, 'nod')).toBe('tap')
     expect(findControlForGesture(bindings, 'shake')).toBeNull()
+    expect(findControlForGesture(bindings, 'turn-R')).toBeNull()
   })
 })

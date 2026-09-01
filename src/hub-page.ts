@@ -5,7 +5,7 @@ import {
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
 import { H, W } from './constants.ts'
-import { formatListItems } from './format.ts'
+import { formatListItems, formatGlassesTitleLine } from './format.ts'
 import type { AppSnapshot } from './types.ts'
 
 export const TITLE_ID = 1
@@ -56,14 +56,7 @@ function listText(snapshot: AppSnapshot) {
 }
 
 function statusLine(snapshot: AppSnapshot): string {
-  if (snapshot.mode === 'binding' && snapshot.bindingControl) {
-    return `Bind: ${snapshot.bindingControl}`
-  }
-  const last = snapshot.logs.at(-1)
-  if (last) {
-    return `control: ${last.control}`
-  }
-  return 'Head tilt test'
+  return formatGlassesTitleLine(snapshot)
 }
 
 export function listContent(snapshot: AppSnapshot): string {
