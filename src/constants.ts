@@ -80,7 +80,7 @@ export function isAssignableGesture(value: string): value is AssignableGesture {
 
 export const EXEC_COOLDOWN_MS = 150
 /** Reach window: hold vs oscillate decided inside this span from first reach. */
-export const REACH_WINDOW_MS = 600
+export const REACH_WINDOW_MS = 200
 export const MOTION_WINDOW_MS = 1500
 
 /** Settle time in neutral before held→return commits (hysteresis). */

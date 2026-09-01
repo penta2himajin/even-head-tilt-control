@@ -225,7 +225,7 @@ describe('PoseTracker enter/return', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []
     let t = 0
-    const push = (x: number, y: number, z: number, step = 50) => {
+    const push = (x: number, y: number, z: number, step = 20) => {
       t += step
       const ev = tracker.push({ x, y, z, t })
       if (ev) {
@@ -236,8 +236,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // Moving pitch excursion above HOLD_ENTER for > SETTLE_MS, then return.
-    // Without a stillness gate this becomes tilt-F; with it, nod wins.
+    // Return to neutral within REACH_WINDOW_MS (200ms) after reach so nod wins over hold.
     const dip = [-0.2, -0.3, -0.38, -0.42, -0.4, -0.35, -0.28, -0.18, -0.08, -0.02, 0, 0]
     for (const x of dip) push(x, 0, Math.sqrt(Math.max(0.01, 1 - x * x)))
 
