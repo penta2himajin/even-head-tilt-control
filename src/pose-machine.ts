@@ -120,9 +120,7 @@ export class PoseTracker {
   }
 
   status(_now = Date.now()): PoseTrackerStatus {
-    const region = this.neutral && this.lastSample
-      ? reachZone(sub(this.lastSample, this.neutral), NEUTRAL_BAND, HOLD_ENTER)
-      : 'neutral'
+    const region = this.displayRegion()
     return {
       phase: this.phase,
       region,
@@ -132,6 +130,18 @@ export class PoseTracker {
       flatCalibActive: this.flatCollecting,
       suppressOscillateUntil: this.suppressOscillateUntil,
     }
+  }
+
+  /** Title / debug region: g₀ when calibrated, else n̂ (not EMA-drifted mid-gesture). */
+  private displayRegion(): PoseRegion {
+    if (!this.lastSample) return 'neutral'
+    const ref = this.g0 ?? this.neutral
+    if (!ref) return 'neutral'
+    return reachZone(sub(this.lastSample, ref), NEUTRAL_BAND, HOLD_ENTER)
+  }
+
+  private snapNeutralToSample(v: Vec3): void {
+    this.neutral = { ...v }
   }
 
   /**
@@ -173,10 +183,19 @@ export class PoseTracker {
     }
     this.lastSample = v
 
+    const zone = reachZone(offset, NEUTRAL_BAND, HOLD_ENTER)
+    if (zone === 'neutral') {
+      this.neutralSince = this.neutralSince ?? now
+    } else {
+      this.neutralSince = null
+    }
+
+    // n̂ EMA only while truly in the neutral band — never creep during poses.
     if (
       this.allowEma &&
       this.phase === 'neutral' &&
       this.windowStart === null &&
+      zone === 'neutral' &&
       this.stillSince !== null &&
       now - this.stillSince >= STILL_BEFORE_EMA_MS &&
       absMax(offset) <= NEUTRAL_BAND
@@ -189,19 +208,12 @@ export class PoseTracker {
       }
     }
 
-    const zone = reachZone(offset, NEUTRAL_BAND, HOLD_ENTER)
-    if (zone === 'neutral') {
-      this.neutralSince = this.neutralSince ?? now
-    } else {
-      this.neutralSince = null
-    }
-
     let transition: PoseTransition | null = null
 
     if (this.phase === 'held' && this.heldGesture !== null) {
-      transition = this.handleHeldPhase(zone, now)
+      transition = this.handleHeldPhase(zone, now, v)
     } else if (this.phase === 'neutral') {
-      transition = this.handleNeutralPhase(zone, now, offset)
+      transition = this.handleNeutralPhase(zone, now, offset, v)
     }
 
     this.lastZone = zone
@@ -267,7 +279,12 @@ export class PoseTracker {
     )
   }
 
-  private handleNeutralPhase(zone: ReachZone, now: number, offset: Vec3): PoseTransition | null {
+  private handleNeutralPhase(
+    zone: ReachZone,
+    now: number,
+    offset: Vec3,
+    v: Vec3,
+  ): PoseTransition | null {
     if (this.windowStart === null) {
       if (
         now >= this.suppressOscillateUntil &&
@@ -291,6 +308,7 @@ export class PoseTracker {
           ? ('nod' as const)
           : null
       this.closeReachWindow()
+      if (osc) this.snapNeutralToSample(v)
       return osc ? { kind: 'oscillate', gesture: osc } : null
     }
 
@@ -312,7 +330,7 @@ export class PoseTracker {
     return null
   }
 
-  private handleHeldPhase(zone: ReachZone, now: number): PoseTransition | null {
+  private handleHeldPhase(zone: ReachZone, now: number, v: Vec3): PoseTransition | null {
     const held = this.heldGesture!
 
     if (isHoldZone(zone) && zone !== held) {
@@ -343,6 +361,7 @@ export class PoseTracker {
       this.heldGesture = null
       this.switchStart = null
       this.switchGesture = null
+      this.snapNeutralToSample(v)
       this.suppressOscillateUntil = now + RETURN_SUPPRESS_MS
       return { kind: 'return' }
     }

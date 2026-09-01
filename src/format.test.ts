@@ -4,6 +4,7 @@ import {
   formatGlassesTitleLine,
   formatListItem,
   formatStatusLabel,
+  GLASSES_TITLE_LEFT_ANCHOR,
   READY_MARKER,
 } from './format.ts'
 import type { AppSnapshot } from './types.ts'
@@ -65,15 +66,19 @@ describe('formatStatusLabel', () => {
 })
 
 describe('formatGlassesTitleLine', () => {
+  const statusAt = (line: string) => line.indexOf('status:')
+
   it('shows control and live status after a fire', () => {
-    expect(
-      formatGlassesTitleLine(
-        snapshot({
-          statusLabel: 'neutral',
-          logs: [{ at: 0, control: 'tap', gesture: 'nod' }],
-        }),
-      ),
-    ).toBe('control: tap        / status: neutral')
+    const line = formatGlassesTitleLine(
+      snapshot({
+        statusLabel: 'neutral',
+        logs: [{ at: 0, control: 'tap', gesture: 'nod' }],
+      }),
+    )
+    expect(line).toBe(
+      `${'control: tap'.padEnd(GLASSES_TITLE_LEFT_ANCHOR.length)} / status: neutral`,
+    )
+    expect(statusAt(line)).toBe(GLASSES_TITLE_LEFT_ANCHOR.length + 3)
   })
 
   it('shows in-pose status while held', () => {
@@ -84,40 +89,51 @@ describe('formatGlassesTitleLine', () => {
           logs: [{ at: 0, control: 'tap', gesture: 'tilt-F' }],
         }),
       ),
-    ).toBe('control: tap        / status: in-pose (tilt-F)')
+    ).toBe(
+      `${'control: tap'.padEnd(GLASSES_TITLE_LEFT_ANCHOR.length)} / status: in-pose (tilt-F)`,
+    )
   })
 
-  it('keeps status at a fixed column for different controls', () => {
-    const tap = formatGlassesTitleLine(
-      snapshot({
-        statusLabel: 'neutral',
-        logs: [{ at: 0, control: 'tap', gesture: 'nod' }],
-      }),
-    )
-    const swipe = formatGlassesTitleLine(
-      snapshot({
-        statusLabel: 'neutral',
-        logs: [{ at: 0, control: 'swipe-down', gesture: 'tilt-L' }],
-      }),
-    )
-    expect(tap.indexOf('status:')).toBe(swipe.indexOf('status:'))
-  })
-
-  it('shows bind mode with status', () => {
-    expect(
+  it('keeps status at the swipe-down anchor column for every control', () => {
+    const anchorAt = statusAt(
       formatGlassesTitleLine(
         snapshot({
-          mode: 'binding',
-          bindingControl: 'dbl',
           statusLabel: 'neutral',
+          logs: [{ at: 0, control: 'swipe-down', gesture: 'tilt-L' }],
         }),
       ),
-    ).toBe('Bind: dbl        / status: neutral')
+    )
+    for (const control of ['tap', 'dbl', 'swipe-up', 'swipe-down'] as const) {
+      const line = formatGlassesTitleLine(
+        snapshot({
+          statusLabel: 'neutral',
+          logs: [{ at: 0, control, gesture: 'nod' }],
+        }),
+      )
+      expect(statusAt(line)).toBe(anchorAt)
+    }
+  })
+
+  it('aligns bind mode to the same status column', () => {
+    const controlLine = formatGlassesTitleLine(
+      snapshot({
+        statusLabel: 'neutral',
+        logs: [{ at: 0, control: 'swipe-down', gesture: 'nod' }],
+      }),
+    )
+    const bindLine = formatGlassesTitleLine(
+      snapshot({
+        mode: 'binding',
+        bindingControl: 'dbl',
+        statusLabel: 'neutral',
+      }),
+    )
+    expect(statusAt(bindLine)).toBe(statusAt(controlLine))
   })
 
   it('shows padded control slot before any fire', () => {
     expect(formatGlassesTitleLine(snapshot({ statusLabel: 'neutral' }))).toBe(
-      'control: —          / status: neutral',
+      `${'control: —'.padEnd(GLASSES_TITLE_LEFT_ANCHOR.length)} / status: neutral`,
     )
   })
 })

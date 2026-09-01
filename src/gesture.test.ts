@@ -221,6 +221,20 @@ describe('PoseTracker enter/return', () => {
     expect(events).not.toContain('shake')
   })
 
+  it('reports neutral display region vs g0 after returning upright from tilt', () => {
+    const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
+    let t = 0
+    const push = (x: number, y: number, z: number, step = 50) => {
+      t += step
+      tracker.push({ x, y, z, t })
+    }
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94)
+    expect(tracker.status().region).toBe('tilt-R')
+    for (let i = 0; i < 8; i++) push(0, 0, 1)
+    expect(tracker.status().region).toBe('neutral')
+  })
+
   it('classifies a quick pitch dip as nod, not tilt-F enter', () => {
     const tracker = new PoseTracker({ g0: { x: 0, y: 0, z: 1 }, at: 0 })
     const events: string[] = []

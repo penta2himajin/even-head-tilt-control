@@ -11,11 +11,11 @@ import type { PoseTrackerStatus } from './gesture.ts'
 
 export { READY_MARKER }
 
-/** Pad control / bind id so `status:` stays at a fixed column on the glasses title. */
-export const GLASSES_TITLE_FIELD_WIDTH = 10
+/** Left segment width anchored on the longest control id (`swipe-down`). */
+export const GLASSES_TITLE_LEFT_ANCHOR = `control: ${CONTROL_LABELS['swipe-down']}`
 
-function padTitleField(label: string): string {
-  return label.padEnd(GLASSES_TITLE_FIELD_WIDTH)
+function padTitleLeft(left: string): string {
+  return left.padEnd(GLASSES_TITLE_LEFT_ANCHOR.length)
 }
 
 /** Live pose for the title — uses current region, not committed hold phase. */
@@ -34,12 +34,11 @@ export function formatGlassesTitleLine(snapshot: {
   statusLabel: string
 }): string {
   const status = `status: ${snapshot.statusLabel}`
-  if (snapshot.mode === 'binding' && snapshot.bindingControl) {
-    return `Bind: ${padTitleField(snapshot.bindingControl)} / ${status}`
-  }
-  const last = snapshot.logs.at(-1)
-  const control = last ? CONTROL_LABELS[last.control] : '—'
-  return `control: ${padTitleField(control)} / ${status}`
+  const left =
+    snapshot.mode === 'binding' && snapshot.bindingControl
+      ? `Bind: ${snapshot.bindingControl}`
+      : `control: ${snapshot.logs.at(-1) ? CONTROL_LABELS[snapshot.logs.at(-1)!.control] : '—'}`
+  return `${padTitleLeft(left)} / ${status}`
 }
 
 export function controlIdFromIndex(index: number): ControlId {
