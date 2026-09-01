@@ -79,13 +79,14 @@ export function isAssignableGesture(value: string): value is AssignableGesture {
 }
 
 export const EXEC_COOLDOWN_MS = 150
+/** Reach window: hold vs oscillate decided inside this span from first reach. */
+export const REACH_WINDOW_MS = 600
 export const MOTION_WINDOW_MS = 1500
 
-/** Settle time inside a pose band before enter/return commits. */
+/** Settle time in neutral before held→return commits (hysteresis). */
 export const SETTLE_MS = 280
 /**
- * Extra stillness required to enter a hold (nod/shake stay moving).
- * Shorter than SETTLE_MS so intentional tilts stay snappy.
+ * @deprecated Hold enter uses REACH_WINDOW_MS dwell, not stillness.
  */
 export const STILL_HOLD_MS = 120
 /** After return-to-neutral, ignore oscillate briefly (offsets already cleared). */

@@ -9,6 +9,13 @@ export interface Vec3 {
 
 export type PoseRegion = 'neutral' | HoldGesture | 'motion'
 
+/** Zone for reach-window FSM (same thresholds as classifyRegion). */
+export type ReachZone = PoseRegion
+
+export function reachZone(offset: Vec3, neutralBand: number, holdEnter: number): ReachZone {
+  return classifyRegion(offset, neutralBand, holdEnter)
+}
+
 export interface GravityCalib {
   g0: Vec3
   at: number

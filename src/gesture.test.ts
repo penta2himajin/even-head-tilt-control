@@ -116,8 +116,8 @@ describe('PoseTracker enter/return', () => {
     }
     // settle neutral
     for (let i = 0; i < 5; i++) push(0, 0, 1, i * 100)
-    // move to tilt-R and hold
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94, 500 + i * 100)
+    // move to tilt-R and hold past REACH_WINDOW_MS
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94, 500 + i * 100)
     // return to neutral
     for (let i = 0; i < 8; i++) push(0, 0.02, 1, 1400 + i * 100)
     expect(events).toContain('tilt-R')
@@ -141,12 +141,12 @@ describe('PoseTracker enter/return', () => {
 
     // settle neutral
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    // enter tilt-L (roll / y-) and hold past settle while still
-    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94)
+    // enter tilt-L (roll / y-) and hold past REACH_WINDOW_MS
+    for (let i = 0; i < 14; i++) push(0, -0.35, 0.94)
     // brief transit through near-neutral (shorter than SETTLE_MS), then opposite tilt-R
     push(0, -0.05, 1, 80)
     push(0, 0.02, 1, 80)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94)
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94)
 
     expect(events.filter((e) => e === 'tilt-L')).toHaveLength(1)
     expect(events.filter((e) => e === 'tilt-R')).toHaveLength(1)
@@ -173,7 +173,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, -0.35, 0.94) // tilt-L
+    for (let i = 0; i < 14; i++) push(0, -0.35, 0.94) // tilt-L
     for (let i = 0; i < 8; i++) push(0, 0, 1) // return
     expect(events).toContain('tilt-L')
     expect(events).toContain('return')
@@ -206,7 +206,7 @@ describe('PoseTracker enter/return', () => {
     }
 
     for (let i = 0; i < 8; i++) push(0, 0, 1)
-    for (let i = 0; i < 8; i++) push(0, 0.35, 0.94) // tilt-R
+    for (let i = 0; i < 14; i++) push(0, 0.35, 0.94) // tilt-R
     for (let i = 0; i < 8; i++) push(0, 0, 1)
     expect(events).toContain('tilt-R')
     expect(events).toContain('return')
